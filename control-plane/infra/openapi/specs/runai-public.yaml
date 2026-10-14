@@ -8293,7 +8293,7 @@ paths:
       description: Returns accepted workload actions. History remains available after a workload is deleted and is removed when the workload is permanently removed from the system.
       operationId: get_workload_actions_history
       tags:
-        - Events
+        - WorkloadActions
       parameters:
         - $ref: '#/components/parameters/WorkloadId'
         - $ref: '#/components/parameters/Offset'

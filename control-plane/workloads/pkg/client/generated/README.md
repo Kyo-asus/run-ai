@@ -103,7 +103,6 @@ Class | Method | HTTP request | Description
 *DistributedInferencesAPI* | [**UpdateDistributedInferenceSpec**](docs/DistributedInferencesAPI.md#updatedistributedinferencespec) | **Patch** /api/v1/workloads/distributed-inferences/{workloadId} | Update distributed inference spec.
 *EventsAPI* | [**GetRevisionEvents**](docs/EventsAPI.md#getrevisionevents) | **Get** /api/v1/workloads/inferences/revisions/{revisionId}/events | Get revision events by id.
 *EventsAPI* | [**GetRevisionHistory**](docs/EventsAPI.md#getrevisionhistory) | **Get** /api/v1/workloads/inferences/revisions/{revisionId}/history | Get the revision history.
-*EventsAPI* | [**GetWorkloadActionsHistory**](docs/EventsAPI.md#getworkloadactionshistory) | **Get** /api/v1/workloads/{workloadId}/actions | Get workload action history.
 *EventsAPI* | [**GetWorkloadEvents**](docs/EventsAPI.md#getworkloadevents) | **Get** /api/v1/workloads/{workloadId}/events | Get the workload events.
 *EventsAPI* | [**GetWorkloadHistory**](docs/EventsAPI.md#getworkloadhistory) | **Get** /api/v1/workloads/{workloadId}/history | Get the workload history.
 *EventsAPI* | [**SyncEvents**](docs/EventsAPI.md#syncevents) | **Post** /api/v1/workloads/events | Sync events.
@@ -149,6 +148,8 @@ Class | Method | HTTP request | Description
 *TrainingsAPI* | [**ResumeTraining**](docs/TrainingsAPI.md#resumetraining) | **Post** /api/v1/workloads/trainings/{workloadId}/resume | Resume a training.
 *TrainingsAPI* | [**SuspendTraining**](docs/TrainingsAPI.md#suspendtraining) | **Post** /api/v1/workloads/trainings/{workloadId}/suspend | Suspend a training.
 *UnifiedAPI* | [**GetUnifiedWorkload**](docs/UnifiedAPI.md#getunifiedworkload) | **Post** /api/v1/workloads/unified | Request unified workload information (internal for UI purposes)
+*WorkloadActionsAPI* | [**GetWorkloadActionsHistory**](docs/WorkloadActionsAPI.md#getworkloadactionshistory) | **Get** /api/v1/workloads/{workloadId}/actions | Get workload action history.
+*WorkloadActionsAPI* | [**InternalCreateWorkloadActions**](docs/WorkloadActionsAPI.md#internalcreateworkloadactions) | **Post** /internal/workloads/actions | Store workload actions.
 *WorkloadPropertiesAPI* | [**CreateWorkloadPriorities**](docs/WorkloadPropertiesAPI.md#createworkloadpriorities) | **Post** /api/v1/workload-priorities | Create workload priorities.
 *WorkloadPropertiesAPI* | [**CreateWorkloadType**](docs/WorkloadPropertiesAPI.md#createworkloadtype) | **Post** /api/v1/workload-types | Create a workload type. [Experimental]
 *WorkloadPropertiesAPI* | [**DeleteWorkloadType**](docs/WorkloadPropertiesAPI.md#deleteworkloadtype) | **Delete** /api/v1/workload-types/{workloadTypeId} | Delete a workload type by id. [Experimental]
@@ -315,6 +316,7 @@ Class | Method | HTTP request | Description
  - [CountResponse](docs/CountResponse.md)
  - [CountWorkloadElements200Response](docs/CountWorkloadElements200Response.md)
  - [CountWorkloads200Response](docs/CountWorkloads200Response.md)
+ - [CreateWorkloadActionsRequest](docs/CreateWorkloadActionsRequest.md)
  - [DataVolume](docs/DataVolume.md)
  - [DataVolumeInstance](docs/DataVolumeInstance.md)
  - [DataVolumeRules](docs/DataVolumeRules.md)
@@ -757,6 +759,7 @@ Class | Method | HTTP request | Description
  - [UpdateWorkloadsSettingByKeyRequest](docs/UpdateWorkloadsSettingByKeyRequest.md)
  - [Workload](docs/Workload.md)
  - [WorkloadActionRecord](docs/WorkloadActionRecord.md)
+ - [WorkloadActionRecordInput](docs/WorkloadActionRecordInput.md)
  - [WorkloadActionType](docs/WorkloadActionType.md)
  - [WorkloadAllocatedResources](docs/WorkloadAllocatedResources.md)
  - [WorkloadBatch](docs/WorkloadBatch.md)
