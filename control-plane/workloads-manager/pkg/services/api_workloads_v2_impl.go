@@ -100,11 +100,11 @@ type CreateWorkloadV2Options struct {
 	RecordAction            bool
 }
 
-// Public v2/YAML updates use SkipAuth=false and RecordAction=true.
-// Delegated v1 any-workload updates use SkipAuth=true and RecordAction=false because workloads already did both.
-type UpdateWorkloadV2Options struct {
-	SkipAuth     bool
-	RecordAction bool
+// Public v2/YAML and in-process NIM updates use skipAuth=false and recordAction=true.
+// Delegated v1 any-workload updates use skipAuth=true and recordAction=false because workloads already did both.
+type updateWorkloadV2Options struct {
+	skipAuth     bool
+	recordAction bool
 }
 
 func NewWorkloadsV2Impl() *WorkloadsV2Impl {
@@ -117,7 +117,10 @@ func NewWorkloadsV2Impl() *WorkloadsV2Impl {
 }
 
 func (w *WorkloadsV2Impl) CreateWorkloadV2(ctx context.Context, request api.WorkloadV2CreateRequest, checkYamlSubmissionFlag bool) (*api.WorkloadV2, []api.SubmissionErrorV2) {
-	return w.CreateWorkloadV2WithDryRun(ctx, request, CreateWorkloadV2Options{DryRun: false, CheckYamlSubmissionFlag: checkYamlSubmissionFlag})
+	return w.CreateWorkloadV2WithDryRun(ctx, request, CreateWorkloadV2Options{
+		CheckYamlSubmissionFlag: checkYamlSubmissionFlag,
+		RecordAction:            true,
+	})
 }
 
 func (w *WorkloadsV2Impl) DryRunCreateWorkloadV2(ctx context.Context, request api.WorkloadV2CreateRequest) (*api.WorkloadV2, []api.SubmissionErrorV2) {
@@ -645,20 +648,16 @@ func (w *WorkloadsV2Impl) GetWorkloadV2ById(ctx context.Context, workloadId stri
 type RecordModifier func(record *models.WorkloadsQueueRecord)
 
 func (w *WorkloadsV2Impl) UpdateWorkloadV2(ctx context.Context, workloadId string, request api.WorkloadV2UpdateRequest, modifiers ...RecordModifier) (*api.WorkloadV2, *api.Error) {
-	return w.UpdateWorkloadV2WithOptions(ctx, workloadId, request, UpdateWorkloadV2Options{}, modifiers...)
-}
-
-func (w *WorkloadsV2Impl) UpdateWorkloadV2WithOptions(ctx context.Context, workloadId string, request api.WorkloadV2UpdateRequest, options UpdateWorkloadV2Options, modifiers ...RecordModifier) (*api.WorkloadV2, *api.Error) {
-	return w.updateWorkloadV2(ctx, workloadId, request, options, modifiers...)
+	return w.updateWorkloadV2(ctx, workloadId, request, updateWorkloadV2Options{recordAction: true}, modifiers...)
 }
 
 func (w *WorkloadsV2Impl) UpdateWorkloadInternal(ctx context.Context, workloadId string, request api.WorkloadV2UpdateRequest) (*api.WorkloadV2, *api.Error) {
 	// The originating typed-V1 API already authorized the request. This trusted path mirrors
 	// CreateWorkloadInternal while retaining the provenance, GVK, and immutability checks below.
-	return w.updateWorkloadV2(ctx, workloadId, request, UpdateWorkloadV2Options{SkipAuth: true})
+	return w.updateWorkloadV2(ctx, workloadId, request, updateWorkloadV2Options{skipAuth: true})
 }
 
-func (w *WorkloadsV2Impl) updateWorkloadV2(ctx context.Context, workloadId string, request api.WorkloadV2UpdateRequest, options UpdateWorkloadV2Options, modifiers ...RecordModifier) (*api.WorkloadV2, *api.Error) {
+func (w *WorkloadsV2Impl) updateWorkloadV2(ctx context.Context, workloadId string, request api.WorkloadV2UpdateRequest, options updateWorkloadV2Options, modifiers ...RecordModifier) (*api.WorkloadV2, *api.Error) {
 	// Validate manifest
 	manifest, err := w.validateManifest(ctx, request.Manifest, request.ManifestBase64Encoded)
 	if err != nil {
@@ -738,7 +737,7 @@ func (w *WorkloadsV2Impl) updateWorkloadV2(ctx context.Context, workloadId strin
 		ProjectId:    *orgUnitApi.NewNullableString(&project.Id),
 	}
 
-	if !options.SkipAuth {
+	if !options.skipAuth {
 		_, authErr := validateCreationAuth(ctx, ancestors, project.Id)
 		if authErr != nil {
 			return nil, authErr
@@ -859,19 +858,19 @@ func (w *WorkloadsV2Impl) updateWorkloadV2(ctx context.Context, workloadId strin
 	if dbErr != nil {
 		return nil, dbErr
 	}
-	if options.RecordAction {
+	if options.recordAction {
 		w.recordAcceptedWorkloadAction(ctx, qRecord, workloadsApi.WORKLOADACTIONTYPE_UPDATE)
 	}
 
 	responsePayload := qRecord.ToWorkloadV2()
-	if !options.SkipAuth {
+	if !options.skipAuth {
 		redactWorkloadV2SensitiveValues(&responsePayload)
 	}
 
 	return &responsePayload, nil
 }
 
-func (w *WorkloadsV2Impl) DeleteWorkloadV2(ctx context.Context, workloadId string, recordAction bool) (*api.WorkloadV2, *api.Error) {
+func (w *WorkloadsV2Impl) DeleteWorkloadV2(ctx context.Context, workloadId string) (*api.WorkloadV2, *api.Error) {
 	permittedScopes, scopesErr := authClient.ParsePermittedScopes(ctx)
 	if scopesErr != nil {
 		permittedScopes = nil
@@ -895,9 +894,7 @@ func (w *WorkloadsV2Impl) DeleteWorkloadV2(ctx context.Context, workloadId strin
 	if delErr != nil {
 		return nil, delErr
 	}
-	if recordAction {
-		w.recordAcceptedWorkloadAction(ctx, qRecord, workloadsApi.WORKLOADACTIONTYPE_DELETE)
-	}
+	w.recordAcceptedWorkloadAction(ctx, qRecord, workloadsApi.WORKLOADACTIONTYPE_DELETE)
 
 	notifyErr := workloadsClient.Get().PatchWorkload(ctx, qRecord.ID, workloadsApi.WorkloadPatchFields{
 		Phase: workloadsApi.PHASE_DELETING,
@@ -972,7 +969,7 @@ func (w *WorkloadsV2Impl) ProcessBatch(ctx context.Context, batch api.WorkloadsV
 		}
 
 		for _, id := range batch.Ids {
-			_, runStateErr := w.SetWorkloadRunState(ctx, id, api.WorkloadRunStateRequest{Value: runState}, false)
+			_, runStateErr := w.setWorkloadRunState(ctx, id, api.WorkloadRunStateRequest{Value: runState}, false)
 			if runStateErr != nil {
 				response.Failed = append(response.Failed, api.BatchResponseFailureItem{
 					Id:      id,
@@ -1599,8 +1596,13 @@ func validateResumeAllowed(qRecord *models.WorkloadsQueueRecord, actualPhase wor
 	return nil
 }
 
-// SetWorkloadRunState implements PATCH /api/v2/workloads/{id}/runState.
-func (w *WorkloadsV2Impl) SetWorkloadRunState(ctx context.Context, workloadId string, request api.WorkloadRunStateRequest, recordAction bool) (*api.WorkloadV2, *api.Error) {
+// SetWorkloadRunState records accepted suspend/resume actions from the public v2 API.
+// ProcessBatch calls setWorkloadRunState with recording disabled because workloads records the original v1 action.
+func (w *WorkloadsV2Impl) SetWorkloadRunState(ctx context.Context, workloadId string, request api.WorkloadRunStateRequest) (*api.WorkloadV2, *api.Error) {
+	return w.setWorkloadRunState(ctx, workloadId, request, true)
+}
+
+func (w *WorkloadsV2Impl) setWorkloadRunState(ctx context.Context, workloadId string, request api.WorkloadRunStateRequest, recordAction bool) (*api.WorkloadV2, *api.Error) {
 	permittedScopes, _ := authClient.ParsePermittedScopes(ctx)
 
 	subjectId, apiErr := runaictx.ParseSubjectId(ctx)
@@ -1692,16 +1694,6 @@ func (w *WorkloadsV2Impl) SetWorkloadRunState(ctx context.Context, workloadId st
 	responsePayload := qRecord.ToWorkloadV2()
 	redactWorkloadV2SensitiveValues(&responsePayload)
 	return &responsePayload, nil
-}
-
-func (w *WorkloadsV2Impl) recordAcceptedWorkloadAction(ctx context.Context, record *models.WorkloadsQueueRecord, action workloadsApi.WorkloadActionType) {
-	if w.workloadActionRecorder == nil {
-		return
-	}
-	w.workloadActionRecorder.Record(ctx, workloadAction{
-		ClusterID: record.ClusterId, WorkloadID: record.ID, WorkloadName: record.Name,
-		Action: action, AcceptedAt: time.Now().UTC().Truncate(time.Microsecond),
-	})
 }
 
 // patchManifestSuspendActions applies karta suspend/resume actions to a manifest clone via the karta accessor.

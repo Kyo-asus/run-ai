@@ -13,6 +13,7 @@ import (
 	"github.com/cenkalti/backoff/v4"
 	workloadsClient "github.com/dsx-ai-factory/run-ai/control-plane/workloads-manager/pkg/clients/workloads"
 	ourConfig "github.com/dsx-ai-factory/run-ai/control-plane/workloads-manager/pkg/config"
+	"github.com/dsx-ai-factory/run-ai/control-plane/workloads-manager/pkg/database/models"
 	workloadsApi "github.com/dsx-ai-factory/run-ai/control-plane/workloads/pkg/client/generated"
 	middlewares "github.com/dsx-ai-factory/run-ai/runai-application-packages/old-auth-token-middleware"
 	"github.com/dsx-ai-factory/run-ai/runai-common-packages/config"
@@ -41,6 +42,16 @@ type asyncWorkloadActionRecorder struct {
 	newBackOff func() backoff.BackOff
 }
 
+func (w *WorkloadsV2Impl) recordAcceptedWorkloadAction(ctx context.Context, record *models.WorkloadsQueueRecord, action workloadsApi.WorkloadActionType) {
+	if w.workloadActionRecorder == nil {
+		return
+	}
+	w.workloadActionRecorder.Record(ctx, workloadAction{
+		ClusterID: record.ClusterId, WorkloadID: record.ID, WorkloadName: record.Name,
+		Action: action, AcceptedAt: time.Now().UTC().Truncate(time.Microsecond),
+	})
+}
+
 func newAsyncWorkloadActionRecorder() *asyncWorkloadActionRecorder {
 	return &asyncWorkloadActionRecorder{
 		client: workloadsClient.Get,
@@ -65,6 +76,7 @@ func (r *asyncWorkloadActionRecorder) Record(ctx context.Context, actions ...wor
 			WorkloadName: action.WorkloadName, Action: action.Action, AcceptedAt: action.AcceptedAt,
 		})
 	}
+	// The command is already accepted, so delivery must continue after its request ends.
 	deliveryCtx := context.WithoutCancel(ctx)
 	go func() {
 		if err := r.deliver(deliveryCtx, request); err != nil {
