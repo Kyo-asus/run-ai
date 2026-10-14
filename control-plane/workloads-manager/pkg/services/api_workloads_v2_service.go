@@ -28,6 +28,7 @@ func (w WorkloadsV2Service) CreateWorkloadV2(ctx context.Context, request api.Wo
 		DryRun:                  dryRun,
 		CheckYamlSubmissionFlag: true,
 		TranslatedFromV1:        false,
+		RecordAction:            true,
 	})
 	if len(errors) > 0 {
 		logging.WithCtx(runaictx.LoggerHook(ctx)).Errorf("failed to create workload with %d errors", len(errors))
@@ -62,7 +63,7 @@ func (w WorkloadsV2Service) GetWorkloadV2ById(ctx context.Context, id string) (a
 }
 
 func (w WorkloadsV2Service) DeleteWorkloadV2(ctx context.Context, id string) (api.ImplResponse, error) {
-	payload, err := impl.DeleteWorkloadV2(ctx, id)
+	payload, err := impl.DeleteWorkloadV2(ctx, id, true)
 	if err != nil {
 		logging.WithCtx(runaictx.LoggerHook(ctx)).Errorf("failed to delete workload %s: %v", err.Message, err.Details)
 		return api.Response(int(err.Code), err), nil
@@ -73,7 +74,7 @@ func (w WorkloadsV2Service) DeleteWorkloadV2(ctx context.Context, id string) (ap
 
 // SetWorkloadRunState - Set the run state of a workload. [Experimental]
 func (w WorkloadsV2Service) SetWorkloadRunState(ctx context.Context, workloadV2Id string, workloadRunStateRequest api.WorkloadRunStateRequest) (api.ImplResponse, error) {
-	payload, err := impl.SetWorkloadRunState(ctx, workloadV2Id, workloadRunStateRequest)
+	payload, err := impl.SetWorkloadRunState(ctx, workloadV2Id, workloadRunStateRequest, true)
 	if err != nil {
 		logging.WithCtx(runaictx.LoggerHook(ctx)).Errorf("failed to set run state for workload %s: %v", workloadV2Id, err.Message)
 		return api.Response(int(err.Code), err), nil
@@ -105,7 +106,7 @@ func (w WorkloadsV2Service) BatchWorkloads(ctx context.Context, batch api.Worklo
 }
 
 func (w WorkloadsV2Service) UpdateWorkloadV2(ctx context.Context, id string, request api.WorkloadV2UpdateRequest) (api.ImplResponse, error) {
-	payload, err := impl.UpdateWorkloadV2(ctx, id, request)
+	payload, err := impl.UpdateWorkloadV2WithOptions(ctx, id, request, UpdateWorkloadV2Options{RecordAction: true})
 	if err != nil {
 		logging.WithCtx(runaictx.LoggerHook(ctx)).Errorf("failed to update workload %s: %v", err.Message, err.Details)
 		return api.Response(int(err.Code), err), nil

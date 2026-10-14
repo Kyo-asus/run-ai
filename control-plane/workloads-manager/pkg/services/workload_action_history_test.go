@@ -9,6 +9,7 @@ import (
 	"context"
 	"net/http"
 	"net/http/httptest"
+	"slices"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -30,6 +31,22 @@ type retryingWorkloadActionsClient struct {
 	failures int
 	requests []workloadsApi.CreateWorkloadActionsRequest
 	tokens   []any
+}
+
+type capturingWorkloadActionRecorder struct {
+	actions []workloadAction
+}
+
+func (r *capturingWorkloadActionRecorder) Record(_ context.Context, actions ...workloadAction) {
+	r.actions = append(r.actions, actions...)
+}
+
+func (r *capturingWorkloadActionRecorder) reset() {
+	r.actions = nil
+}
+
+func (r *capturingWorkloadActionRecorder) recorded() []workloadAction {
+	return slices.Clone(r.actions)
 }
 
 func (c *retryingWorkloadActionsClient) CreateWorkloadActions(ctx context.Context, request workloadsApi.CreateWorkloadActionsRequest) *workloadsApi.Error {
