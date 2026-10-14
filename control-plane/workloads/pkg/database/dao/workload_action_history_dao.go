@@ -35,6 +35,35 @@ func DbInsertWorkloadActions(ctx context.Context, records []models.WorkloadActio
 	return nil
 }
 
+// Wait for workload registration so the orphan cleaner cannot remove actions delivered first.
+func DbInsertRegisteredWorkloadActions(ctx context.Context, records []models.WorkloadActionHistory) *api.Error {
+	if len(records) == 0 {
+		return nil
+	}
+	tenantID, apiErr := services_utils.ParseTenantId(ctx)
+	if apiErr != nil {
+		return apiErr
+	}
+	workloadIDs := make([]uuid.UUID, 0, len(records))
+	seen := make(map[uuid.UUID]bool, len(records))
+	for _, record := range records {
+		if !seen[record.WorkloadID] {
+			seen[record.WorkloadID] = true
+			workloadIDs = append(workloadIDs, record.WorkloadID)
+		}
+	}
+	var count int64
+	err := runaidb.DB().WithContext(ctx).Unscoped().Model(&models.Workload{}).
+		Where("tenant_id = ? AND id IN ?", tenantID, workloadIDs).Count(&count)
+	if err != nil {
+		return api.NewError(http.StatusInternalServerError, "Failed to check workload registration", err)
+	}
+	if count != int64(len(workloadIDs)) {
+		return api.NewError(http.StatusServiceUnavailable, "Workload registration is pending; retry action delivery", nil)
+	}
+	return DbInsertWorkloadActions(ctx, records)
+}
+
 func DbGetWorkloadActions(ctx context.Context, workloadID uuid.UUID, offset, limit int32) ([]models.WorkloadActionHistory, bool, *api.Error) {
 	records := []models.WorkloadActionHistory{}
 	tenantID, apiErr := services_utils.ParseTenantId(ctx)
