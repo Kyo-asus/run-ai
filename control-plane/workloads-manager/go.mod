@@ -22,6 +22,7 @@ require (
 	github.com/dsx-ai-factory/run-ai/runai-clients/policy-service-client v0.0.0
 	github.com/dsx-ai-factory/run-ai/runai-clients/workloads-manager-client v0.0.0
 	github.com/dsx-ai-factory/run-ai/runai-cluster/cluster/common/constants v0.0.0
+	github.com/dsx-ai-factory/run-ai/runai-cluster/cluster/sdk v0.0.0-20250907093507-4e419875bd3d
 	github.com/dsx-ai-factory/run-ai/runai-cluster/common/cluster-capabilities v1.0.5
 	github.com/dsx-ai-factory/run-ai/runai-cluster/common/constants v0.0.0-20260804144203-08ba37680424
 	github.com/dsx-ai-factory/run-ai/runai-common-packages/cache/v2 v2.4.6
@@ -50,6 +51,9 @@ require (
 	gorm.io/gorm v1.31.2
 	k8s.io/api v0.36.2
 	k8s.io/apimachinery v0.36.2
+	k8s.io/utils v0.0.0-20260507154919-ff6756f316d2
+	sigs.k8s.io/gateway-api v1.5.0
+	sigs.k8s.io/lws v0.7.0
 )
 
 replace (
@@ -89,7 +93,6 @@ require (
 	github.com/GoogleCloudPlatform/opentelemetry-operations-go/internal/resourcemapping v0.53.0 // indirect
 	github.com/Masterminds/semver/v3 v3.4.0 // indirect
 	github.com/Microsoft/go-winio v0.6.2 // indirect
-	github.com/NVIDIA/k8s-dra-driver-gpu v0.0.0-20260329235847-c657396bd619 // indirect
 	github.com/PaesslerAG/gval v1.0.0 // indirect
 	github.com/PaesslerAG/jsonpath v0.1.1 // indirect
 	github.com/Rican7/retry v0.3.1 // indirect
@@ -121,10 +124,7 @@ require (
 	github.com/dsx-ai-factory/run-ai/runai-clients/assets-service-client v0.0.0 // indirect
 	github.com/dsx-ai-factory/run-ai/runai-clients/k8s-objects-tracker-client v0.0.0 // indirect
 	github.com/dsx-ai-factory/run-ai/runai-cluster/cluster/common/personalcreds v0.0.0 // indirect
-	github.com/dsx-ai-factory/run-ai/runai-cluster/cluster/sdk v0.0.0-20250907093507-4e419875bd3d // indirect
 	github.com/dsx-ai-factory/run-ai/runai-cluster/cluster/workload-common v0.0.0 // indirect
-	github.com/dsx-ai-factory/run-ai/runai-cluster/cluster/workload-controller v0.0.0 // indirect
-	github.com/dsx-ai-factory/run-ai/runai-cluster/common/priority v0.0.0 // indirect
 	github.com/dsx-ai-factory/run-ai/runai-cluster/common/utils v0.0.0 // indirect
 	github.com/ebitengine/purego v0.10.1 // indirect
 	github.com/emicklei/go-restful/v3 v3.13.0 // indirect
@@ -164,7 +164,6 @@ require (
 	github.com/go-task/slim-sprig/v3 v3.0.0 // indirect
 	github.com/golang-jwt/jwt/v5 v5.3.1 // indirect
 	github.com/golang-migrate/migrate/v4 v4.19.1 // indirect
-	github.com/golang/glog v1.2.5 // indirect
 	github.com/golang/protobuf v1.5.4 // indirect
 	github.com/google/btree v1.1.3 // indirect
 	github.com/google/cel-go v0.29.0 // indirect
@@ -195,7 +194,6 @@ require (
 	github.com/kedacore/keda/v2 v2.18.3 // indirect
 	github.com/klauspost/compress v1.20.1 // indirect
 	github.com/kserve/kserve v0.17.1 // indirect
-	github.com/kubeflow/training-operator v1.9.3 // indirect
 	github.com/kylelemons/godebug v1.1.0 // indirect
 	github.com/leodido/go-urn v1.5.0 // indirect
 	github.com/lib/pq v1.11.2 // indirect
@@ -222,7 +220,6 @@ require (
 	github.com/nats-io/nats.go v1.54.0 // indirect
 	github.com/nats-io/nkeys v0.4.16 // indirect
 	github.com/nats-io/nuid v1.0.1 // indirect
-	github.com/novln/docker-parser v1.0.0 // indirect
 	github.com/oklog/ulid v1.3.1 // indirect
 	github.com/opencontainers/go-digest v1.0.0 // indirect
 	github.com/opencontainers/image-spec v1.1.1 // indirect
@@ -320,15 +317,12 @@ require (
 	k8s.io/dynamic-resource-allocation v0.35.4 // indirect
 	k8s.io/klog/v2 v2.140.0 // indirect
 	k8s.io/kube-openapi v0.0.0-20260317180543-43fb72c5454a // indirect
-	k8s.io/utils v0.0.0-20260507154919-ff6756f316d2 // indirect
 	knative.dev/networking v0.0.0-20260120131110-a7cdca238a0d // indirect
 	knative.dev/pkg v0.0.0-20260120122510-4a022ed9999a // indirect
 	knative.dev/serving v0.48.1 // indirect
 	sigs.k8s.io/controller-runtime v0.23.3 // indirect
-	sigs.k8s.io/gateway-api v1.5.0 // indirect
 	sigs.k8s.io/gateway-api-inference-extension v1.3.0 // indirect
 	sigs.k8s.io/json v0.0.0-20250730193827-2d320260d730 // indirect
-	sigs.k8s.io/lws v0.7.0 // indirect
 	sigs.k8s.io/randfill v1.0.0 // indirect
 	sigs.k8s.io/structured-merge-diff/v6 v6.3.2 // indirect
 	sigs.k8s.io/yaml v1.6.0 // indirect
@@ -368,7 +362,6 @@ replace github.com/dsx-ai-factory/run-ai/runai-cluster/common/cluster-capabiliti
 replace github.com/dsx-ai-factory/run-ai/control-plane/workloads => ../workloads
 
 replace github.com/dsx-ai-factory/run-ai/control-plane/workloads-and-policies => ../workloads-and-policies
-
 
 replace github.com/dsx-ai-factory/run-ai/runai-cluster/cluster/dromos/api/v1alpha1 => ../../runai-cluster/cluster/dromos/api/v1alpha1
 
