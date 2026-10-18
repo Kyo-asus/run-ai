@@ -443,30 +443,36 @@ Configures the `airgap pack` command, which builds an air-gapped bundle from a r
 
 ```yaml
 settings:
-  runaiVersion: 3.0.2
+  runaiVersion: 3.0.17
   architecture: amd64
   output: /path/to/runai-airgap.tar
 
-imageOverrides:
-  - name: keycloak
-    source: <your-registry>/keycloak:<tag>
+# Optional: replace specific images with images from your own registry
+# imageOverrides:
+#   - name: keycloak
+#     source: <your-registry>/keycloak:<tag>
+#   # Gov-ready: add an entry for each hardened image (keycloak, postgres, traefik, nats, thanos, valkey, git-sync)
 
-registryAuth:
-  - registry: <your-registry-host>
-    username: <username>
-    passwordPath: /path/to/registry-password
+# Optional: credentials for the registry that hosts an imageOverrides source
+# registryAuth:
+#   - registry: <your-registry-host>
+#     username: <username>
+#     passwordPath: /path/to/registry-password
+#   # Gov-ready: add an entry for docker.io with your Docker Hub credentials
 ```
+
+A standard air-gapped bundle needs only the `settings` section. `imageOverrides` and `registryAuth` are optional.
 
 | Field | Type | Required | Description |
 |---|---|---|---|
-| `settings.runaiVersion` | string | No | Target NVIDIA Run:ai version to pack. |
+| `settings.runaiVersion` | string | Yes | Target NVIDIA Run:ai version to pack, for example `3.0.17`. |
 | `settings.architecture` | string | No | CPU architecture to pack. Supported values: `amd64`, `arm64`. |
 | `settings.output` | string | No | Path to write the resulting bundle archive. Defaults to `runai-<version>-airgap.tar` in the current directory. |
-| `imageOverrides` | list | No | Substitutes or adds images sourced from your own registry instead of the release's defaults - for example, a third-party service image such as Keycloak. |
+| `imageOverrides` | list | No | Substitutes or adds images sourced from your own registry instead of the release's defaults - for example, a third-party service image such as Keycloak. See [Third-Party Services](../../system-requirements/third-party-services.md#image-registry). For a Gov-ready installation, add an entry for each hardened third-party image - see [Gov-Ready Third-Party Services](../../system-requirements/gov-ready-third-party-services.md). |
 | `imageOverrides[].group` | string | Conditional | Image group the override applies to. Required only when `name` exists in more than one group. |
 | `imageOverrides[].name` | string | Yes (per entry) | Name of the image to override. |
 | `imageOverrides[].source` | string | Yes (per entry) | Full image reference to pull instead, including an explicit tag or digest. |
-| `registryAuth` | list | No | Credentials for registries referenced by `imageOverrides` sources, or for a Support-Entitled Release's own registry. Each entry authenticates to one registry. |
+| `registryAuth` | list | No | Credentials for registries referenced by `imageOverrides` sources, or for a Support-Entitled Release's own registry. Each entry authenticates to one registry. For a Gov-ready installation, add an entry for `docker.io` with your Docker Hub credentials - see [Gov-Ready Third-Party Services](../../system-requirements/gov-ready-third-party-services.md). |
 | `registryAuth[].registry` | string | Yes (per entry) | Registry hostname this entry authenticates to. |
 | `registryAuth[].username` / `password` / `passwordPath` / `passwordEnv` | string | No | Basic authentication. `password`, `passwordPath`, and `passwordEnv` are mutually exclusive. |
 | `registryAuth[].token` / `tokenPath` / `tokenEnv` | string | No | Token authentication. Mutually exclusive with each other. |
