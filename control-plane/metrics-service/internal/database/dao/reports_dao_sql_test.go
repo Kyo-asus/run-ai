@@ -157,7 +157,31 @@ func TestReportsDaoSQLGetReports(t *testing.T) {
 		require.Nil(t, err)
 	})
 
-	t.Run("sorts, falls back to id as tiebreaker and pages", func(t *testing.T) {
+	for _, tc := range []struct {
+		column    string
+		sortOrder string
+		orderBy   string
+	}{
+		{column: "name", sortOrder: "asc", orderBy: "name ASC NULLS FIRST"},
+		{column: "name", sortOrder: "desc", orderBy: "name DESC NULLS LAST"},
+		{column: "created_at", sortOrder: "asc", orderBy: "created_at ASC NULLS FIRST"},
+		{column: "created_at", sortOrder: "desc", orderBy: "created_at DESC NULLS LAST"},
+		{column: "created_by", sortOrder: "asc", orderBy: "created_by ASC NULLS FIRST"},
+		{column: "created_by", sortOrder: "desc", orderBy: "created_by DESC NULLS LAST"},
+		{column: "status", sortOrder: "asc", orderBy: "status ASC NULLS FIRST"},
+		{column: "status", sortOrder: "desc", orderBy: "status DESC NULLS LAST"},
+	} {
+		t.Run("sorts by "+tc.column+" "+tc.sortOrder+" with id as the tiebreaker", func(t *testing.T) {
+			mocker := dbtesting.SetSQLMock(t)
+			mocker.ExpectQuery(`SELECT * FROM reports WHERE tenant_id = ? ORDER BY `+tc.orderBy+`,id`, testTenantID).Returns([]reportRow{})
+
+			_, err := NewPostgresReportsDao().GetReports(context.Background(), testTenantID, nil, tc.column, tc.sortOrder, 0, 0, "")
+
+			require.Nil(t, err)
+		})
+	}
+
+	t.Run("pages with limit and offset", func(t *testing.T) {
 		mocker := dbtesting.SetSQLMock(t)
 		mocker.ExpectQuery(sqlSelectReportsPage, testTenantID, 10, 20).Returns([]reportRow{})
 

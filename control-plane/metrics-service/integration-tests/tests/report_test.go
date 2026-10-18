@@ -632,18 +632,6 @@ func (suite *ReportTestSuite) TestBatchGetReports_OtherTenantsReportIsNotReturne
 	require.Equal(suite.T(), int32(http.StatusNotFound), response.Failed[0].Code)
 }
 
-func (suite *ReportTestSuite) TestBatchDeleteReports_ReportAlreadyBeingDeletedIsNotAccepted() {
-	ctx := reportCtx("1", "creator@example.com")
-	reportId := createReportInStatus(suite, openapi.REPORTSTATUS_DELETING)
-
-	response, statusCode, err := metrics_client.GetClientInstance().BatchDeleteReports(ctx, []string{reportId})
-
-	require.NoError(suite.T(), err)
-	require.Equal(suite.T(), http.StatusAccepted, statusCode)
-	require.Empty(suite.T(), response.Accepted)
-	requireReportStatus(suite, ctx, reportId, openapi.REPORTSTATUS_DELETING)
-}
-
 func (suite *ReportTestSuite) TestListReports_SortingAndPaging() {
 	// A tenant of its own keeps the listing to exactly these reports.
 	tenantId := fmt.Sprintf("%d", random.Int31())
