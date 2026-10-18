@@ -157,7 +157,7 @@ helm upgrade -i runai-backend ./charts/control-plane-<VERSION>.tgz \
 
 **Support-Entitled**
 
-In addition to the values above, add `--set supportEntitled=true` and `--set telemetryService.enabled=true` to the `helm upgrade` command:
+In addition to the values above, add `--set supportEntitled=true` to the `helm upgrade` command:
 
 ```bash
 helm upgrade -i runai-backend ./charts/control-plane-<VERSION>.tgz \
@@ -167,7 +167,6 @@ helm upgrade -i runai-backend ./charts/control-plane-<VERSION>.tgz \
     --set tenantsManager.config.adminUsername=<ADMIN_EMAIL> \
     --set tenantsManager.config.adminPassword="<ADMIN_PASSWORD>" \
     --set supportEntitled=true \
-    --set telemetryService.enabled=true \
     -n runai-backend -f <VALUES_DIR>/control-plane-airgap-values.yaml
 ```
 
@@ -181,7 +180,6 @@ helm upgrade -i runai-backend ./charts/control-plane-<VERSION>.tgz \
     --set tenantsManager.config.adminUsername=email@local.com \
     --set tenantsManager.config.adminPassword="myPassw0rd\!" \
     --set supportEntitled=true \
-    --set telemetryService.enabled=true \
     -n runai-backend -f <VALUES_DIR>/control-plane-airgap-values.yaml
 ```
 
@@ -321,7 +319,7 @@ helm upgrade -i runai-backend ./charts/control-plane-<VERSION>.tgz -n runai-back
 
 **Support-Entitled**
 
-In addition to the values above, add `--set supportEntitled=true` and `--set telemetryService.enabled=true` to the `helm upgrade` command:
+In addition to the values above, add `--set supportEntitled=true` to the `helm upgrade` command:
 
 ```bash
 helm upgrade -i runai-backend ./charts/control-plane-<VERSION>.tgz -n runai-backend \
@@ -331,7 +329,6 @@ helm upgrade -i runai-backend ./charts/control-plane-<VERSION>.tgz -n runai-back
     --set tenantsManager.config.adminUsername=<ADMIN_EMAIL> \
     --set tenantsManager.config.adminPassword="<ADMIN_PASSWORD>" \
     --set supportEntitled=true \
-    --set telemetryService.enabled=true \
     -f <VALUES_DIR>/control-plane-airgap-values.yaml
 ```
 
@@ -345,7 +342,6 @@ helm upgrade -i runai-backend ./charts/control-plane-<VERSION>.tgz -n runai-back
     --set tenantsManager.config.adminUsername=email@local.com \
     --set tenantsManager.config.adminPassword="myPassw0rd\!" \
     --set supportEntitled=true \
-    --set telemetryService.enabled=true \
     -f <VALUES_DIR>/control-plane-airgap-values.yaml
 ```
 
