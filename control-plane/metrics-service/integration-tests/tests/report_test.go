@@ -656,10 +656,10 @@ func (suite *ReportTestSuite) TestListReports_SortingAndPaging() {
 		return got
 	}
 
-	require.Equal(suite.T(), []string{"a", "b", "c"}, listNames(openapi.REPORTFILTERANDSORTFIELDS_NAME, "asc", 0, 0))
-	require.Equal(suite.T(), []string{"c", "b", "a"}, listNames(openapi.REPORTFILTERANDSORTFIELDS_NAME, "desc", 0, 0))
-	require.Equal(suite.T(), []string{"b", "a", "c"}, listNames(openapi.REPORTFILTERANDSORTFIELDS_CREATED_AT, "asc", 0, 0))
-	require.Equal(suite.T(), []string{"c", "b", "a"}, listNames(openapi.REPORTFILTERANDSORTFIELDS_CREATED_BY, "asc", 0, 0))
+	require.Equal(suite.T(), []string{"a", "b", "c"}, listNames(openapi.REPORTFILTERANDSORTFIELDS_NAME, "asc", 0, 100))
+	require.Equal(suite.T(), []string{"c", "b", "a"}, listNames(openapi.REPORTFILTERANDSORTFIELDS_NAME, "desc", 0, 100))
+	require.Equal(suite.T(), []string{"b", "a", "c"}, listNames(openapi.REPORTFILTERANDSORTFIELDS_CREATED_AT, "asc", 0, 100))
+	require.Equal(suite.T(), []string{"c", "b", "a"}, listNames(openapi.REPORTFILTERANDSORTFIELDS_CREATED_BY, "asc", 0, 100))
 
 	require.Equal(suite.T(), []string{"a", "b"}, listNames(openapi.REPORTFILTERANDSORTFIELDS_NAME, "asc", 0, 2))
 	require.Equal(suite.T(), []string{"c"}, listNames(openapi.REPORTFILTERANDSORTFIELDS_NAME, "asc", 2, 2))
