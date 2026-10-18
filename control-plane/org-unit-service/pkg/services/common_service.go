@@ -202,7 +202,10 @@ func PatchOrgUnitDataResourcesPartial(
 		// GPU: update when touched (values may be nil to clear)
 		if patchRequest.Resources.Gpu != nil {
 			existingResources[i].GpuLimit = newResource.GpuLimit
-			existingResources[i].GpuDeserved = newResource.GpuDeserved
+			// an omitted deserved keeps the stored quota; the department batch save does the same
+			if patchRequest.Resources.Gpu.Deserved != nil {
+				existingResources[i].GpuDeserved = newResource.GpuDeserved
+			}
 			existingResources[i].GpuOverQuotaWeight = newResource.GpuOverQuotaWeight
 		}
 
@@ -252,13 +255,28 @@ func ValidateResourcesPatchRequest(ctx context.Context, resources []api.Resource
 	return ValidateNodePools(ctx, resources)
 }
 
-func ValidateNodePoolResourcesPatchRequest(ctx context.Context, npr api.NodePoolResourcesPatchRequest, nodePoolsMetadata map[string]apiClusters.NodepoolMinimal) error {
+// storedGpuDeserved is the node pool's current gpu deserved; it stands in for a gpu deserved the request omits.
+func ValidateNodePoolResourcesPatchRequest(ctx context.Context, npr api.NodePoolResourcesPatchRequest,
+	nodePoolsMetadata map[string]apiClusters.NodepoolMinimal, storedGpuDeserved *float64,
+) error {
 	logging.WithCtx(runaictx.LoggerHook(ctx)).Infof("Validating node pool resources patch request")
 
 	resourcesNullable := ConvertNodePoolResourcesPatchRequest(npr)
+	if npr.Resources != nil && npr.Resources.Gpu != nil && npr.Resources.Gpu.Deserved == nil {
+		resourcesNullable.Gpu.Deserved = storedGpuDeserved
+	}
 
 	_, err := validateNodePoolResources(resourcesNullable, nodePoolsMetadata, false)
 	return err
+}
+
+func StoredGpuDeserved(resources []models.Resources, nodePoolId string) *float64 {
+	for _, resource := range resources {
+		if resource.NodePoolId == nodePoolId {
+			return resource.GpuDeserved
+		}
+	}
+	return nil
 }
 
 func ValidateNodePools(ctx context.Context, resources []api.ResourcesNullable) error {
@@ -287,7 +305,7 @@ func ValidateNodePools(ctx context.Context, resources []api.ResourcesNullable) e
 	return nil
 }
 
-// requireGpuDeserved is false for the batch patch, where an omitted gpu deserved keeps the stored value.
+// requireGpuDeserved is false for the batch patch, which can patch other fields of a node pool without the gpu quota.
 func validateNodePoolResources(nodePoolResources api.ResourcesNullable, nodePoolsMetadata map[string]apiClusters.NodepoolMinimal, requireGpuDeserved bool) ([][]*float64, error) {
 	deservedLimitPairs := [][]*float64{}
 
@@ -301,7 +319,7 @@ func validateNodePoolResources(nodePoolResources api.ResourcesNullable, nodePool
 	ranksFlag := npSchedulingCapabilities.Ranks
 
 	if quotaFlag && requireGpuDeserved && nodePoolResources.Gpu.Deserved == nil {
-		return nil, fmt.Errorf("quota is enabled on nodepool id <%s>. Gpu deserved is required", nodepoolId)
+		return nil, fmt.Errorf("quota is enabled on nodepool id <%s>. GPU deserved is required", nodepoolId)
 	}
 
 	gpuDeserved := ptr.Deref(nodePoolResources.Gpu.Deserved, 0)

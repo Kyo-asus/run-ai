@@ -738,7 +738,7 @@ func (s *DepartmentApiService) patchDepartmentNodePoolResources(
 		return nil, "", apiErr
 	}
 
-	err = services.ValidateNodePoolResourcesPatchRequest(ctx, patchRequest, nodePools)
+	err = services.ValidateNodePoolResourcesPatchRequest(ctx, patchRequest, nodePools, departmentNodePoolResources.GpuDeserved)
 	if err != nil {
 		return nil, "", api.NewError(http.StatusBadRequest, fmt.Sprintf("patch department resources validation failed: %s", err.Error()), err)
 	}

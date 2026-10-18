@@ -2019,7 +2019,7 @@ paths:
     patch:
       summary: Patch department resources
       operationId: patch_department_resources
-      description: Updates the resources of the node pools in the request. Node pools that are not in the request stay unchanged. Each node pool in the request is replaced as a whole, so omitted fields are set to their defaults. To update single fields of a node pool, use the node pool resources batch patch.
+      description: Updates the resources of the node pools in the request. Node pools that are not in the request stay unchanged. Each node pool in the request is replaced as a whole, so omitted fields are set to their defaults. To change only part of a node pool, for example only its rank, use the node pool resources batch patch.
       tags:
         - Departments
       parameters:
@@ -2332,7 +2332,7 @@ paths:
     patch:
       summary: Patch project resources
       operationId: patch_project_resources
-      description: Updates the resources of the node pools in the request. Node pools that are not in the request stay unchanged. Each node pool in the request is replaced as a whole, so omitted fields are set to their defaults. To update single fields of a node pool, use the node pool resources batch patch.
+      description: Updates the resources of the node pools in the request. Node pools that are not in the request stay unchanged. Each node pool in the request is replaced as a whole, so omitted fields are set to their defaults. To change only part of a node pool, for example only its rank, use the node pool resources batch patch.
       tags:
         - Projects
       parameters:
@@ -15952,7 +15952,7 @@ components:
         gpu:
           allOf:
             - $ref: '#/components/schemas/GpuResourceRequest'
-            - description: Defines the GPU quota assignment, maximum GPU device allocation, and weight assigned that determines the fairshare of over-quota resources. Required for node pools with quota enabled. For node pools with quota disabled, deserved must be 0 or omitted and limit must be -1 or omitted.
+            - description: Defines the GPU quota assignment, maximum GPU device allocation, and weight assigned that determines the fairshare of over-quota resources. Required for node pools with quota enabled. For node pools with quota disabled, deserved must be 0 or omitted and limit must be -1, null or omitted.
         cpu:
           type: object
           nullable: true
@@ -16471,7 +16471,7 @@ components:
           nullable: true
           allOf:
             - $ref: '#/components/schemas/Resource'
-            - description: Defines the GPU quota assignment, maximum GPU device allocation, and weight assigned that determines the fairshare of over-quota resources. Optional. If omitted, the GPU values stay unchanged. For node pools with quota disabled, deserved must be 0 and limit must be -1 or omitted.
+            - description: Defines the GPU quota assignment, maximum GPU device allocation, and weight assigned that determines the fairshare of over-quota resources. Optional. If omitted, the GPU values stay unchanged. For node pools with quota disabled, deserved must be 0 or omitted and limit must be -1, null or omitted.
         cpu:
           type: object
           nullable: true

@@ -194,7 +194,8 @@ func prepareAndValidatePatchResourcesForDepartment(
 
 		requestedPatchNodePoolResourcesPerProject := []api.ResourcesNullable{}
 		for _, patchRequest := range projectPatches.patchRequests {
-			err := services.ValidateNodePoolResourcesPatchRequest(ctx, patchRequest, nodePools)
+			err := services.ValidateNodePoolResourcesPatchRequest(ctx, patchRequest, nodePools,
+				services.StoredGpuDeserved(projectPatches.dbProject.OrgUnitData.Resources, patchRequest.NodePoolId))
 			if err != nil {
 				failed = append(failed, api.FailedNodePoolResourcesPatchRequest{
 					Payload: patchRequest,

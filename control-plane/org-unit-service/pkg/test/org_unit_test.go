@@ -1228,7 +1228,7 @@ var _ = Describe("Org unit tests", Ordered, func() {
 				def := CreateNodePoolApiResources(false, fmt.Sprint(defaultNodePoolId), "default")
 				def.Gpu.Deserved = nil
 				pool2 := CreateNodePoolApiResourcesNoQuota("2", "pool2")
-				expectedMessage := fmt.Sprintf("quota is enabled on nodepool id <%s>. Gpu deserved is required", fmt.Sprint(defaultNodePoolId))
+				expectedMessage := fmt.Sprintf("quota is enabled on nodepool id <%s>. GPU deserved is required", fmt.Sprint(defaultNodePoolId))
 
 				req := getDepartmentCreateRequest(createDepartmentName(), clusterId2)
 				req.Resources = []api.ResourcesNullable{def, pool2}
@@ -1257,11 +1257,14 @@ var _ = Describe("Org unit tests", Ordered, func() {
 				Expect(resP.Code).To(Equal(http.StatusCreated), fmt.Sprintf("got body: %+v", resP.Body))
 				proj := resP.Body.(api.Project)
 				projIds = append(projIds, proj.Id)
-				for _, resources := range proj.Resources {
-					if resources.NodePool.Id == "2" {
-						Expect(resources.Gpu.Deserved).To(Equal(float64(0)))
+				var pool2Resources *api.Resources
+				for i := range proj.Resources {
+					if proj.Resources[i].NodePool != nil && proj.Resources[i].NodePool.Id == "2" {
+						pool2Resources = &proj.Resources[i]
 					}
 				}
+				Expect(pool2Resources).ToNot(BeNil())
+				Expect(pool2Resources.Gpu.Deserved).To(Equal(float64(0)))
 			})
 
 			It("put and patch project resources fail when quota is enabled and gpu deserved is omitted", func() {
@@ -1278,7 +1281,7 @@ var _ = Describe("Org unit tests", Ordered, func() {
 
 				noDeserved := CreateNodePoolApiResources(false, fmt.Sprint(defaultNodePoolId), "default")
 				noDeserved.Gpu.Deserved = nil
-				expectedMessage := fmt.Sprintf("quota is enabled on nodepool id <%s>. Gpu deserved is required", fmt.Sprint(defaultNodePoolId))
+				expectedMessage := fmt.Sprintf("quota is enabled on nodepool id <%s>. GPU deserved is required", fmt.Sprint(defaultNodePoolId))
 
 				patchRes, err := projectApiService2.PatchProjectResources(ctx, proj.Id, []api.ResourcesNullable{noDeserved})
 				Expect(err).To(BeNil())
@@ -1291,7 +1294,34 @@ var _ = Describe("Org unit tests", Ordered, func() {
 				Expect(putRes.Body.(api.Error).Details).To(ContainSubstring(expectedMessage))
 			})
 
-			It("batch patch keeps the stored gpu deserved when it is omitted", func() {
+			It("put and patch department resources fail when quota is enabled and gpu deserved is omitted", func() {
+				depReq := getDepartmentCreateRequest(createDepartmentName(), clusterId2)
+				depReq.Resources = []api.ResourcesNullable{
+					CreateNodePoolApiResources(false, fmt.Sprint(defaultNodePoolId), "default"),
+					CreateNodePoolApiResourcesNoQuota("2", "pool2"),
+				}
+				depRes, err := departmentApiService2.CreateDepartment(ctx, depReq)
+				Expect(err).To(BeNil())
+				Expect(depRes.Code).To(Equal(http.StatusCreated))
+				dep := depRes.Body.(api.Department)
+				depIds = append(depIds, dep.Id)
+
+				noDeserved := CreateNodePoolApiResources(false, fmt.Sprint(defaultNodePoolId), "default")
+				noDeserved.Gpu.Deserved = nil
+				expectedMessage := fmt.Sprintf("quota is enabled on nodepool id <%s>. GPU deserved is required", fmt.Sprint(defaultNodePoolId))
+
+				patchRes, err := departmentApiService2.PatchDepartmentResources(ctx, dep.Id, []api.ResourcesNullable{noDeserved})
+				Expect(err).To(BeNil())
+				Expect(patchRes.Code).To(Equal(http.StatusBadRequest))
+				Expect(patchRes.Body.(api.Error).Details).To(ContainSubstring(expectedMessage))
+
+				putRes, err := departmentApiService2.UpdateDepartmentResources(ctx, dep.Id, []api.ResourcesNullable{noDeserved, CreateNodePoolApiResourcesNoQuota("2", "pool2")})
+				Expect(err).To(BeNil())
+				Expect(putRes.Code).To(Equal(http.StatusBadRequest))
+				Expect(putRes.Body.(api.Error).Details).To(ContainSubstring(expectedMessage))
+			})
+
+			It("batch patch without resources keeps the stored gpu deserved", func() {
 				reqP := getProjectCreateRequest(createProjectName(), "", defaultDepId, clusterId2)
 				reqP.Resources = []api.ResourcesNullable{
 					CreateNodePoolApiResources(false, fmt.Sprint(defaultNodePoolId), "default"),
@@ -1317,6 +1347,74 @@ var _ = Describe("Org unit tests", Ordered, func() {
 				Expect(body.Succeeded).To(HaveLen(1))
 				Expect(body.Succeeded[0].Resources.Gpu.Deserved).ToNot(BeNil())
 				Expect(*body.Succeeded[0].Resources.Gpu.Deserved).To(Equal(FullResourcesDeservedGpu))
+			})
+
+			Context("batch patch with gpu but without gpu deserved", func() {
+				var projId string
+
+				BeforeEach(func() {
+					reqP := getProjectCreateRequest(createProjectName(), "", defaultDepId, clusterId2)
+					reqP.Resources = []api.ResourcesNullable{
+						CreateNodePoolApiResources(false, fmt.Sprint(defaultNodePoolId), "default"),
+						CreateNodePoolApiResourcesNoQuota("2", "pool2"),
+					}
+					resP, err := projectApiService2.CreateProject(ctx, reqP)
+					Expect(err).To(BeNil())
+					Expect(resP.Code).To(Equal(http.StatusCreated))
+					projId = resP.Body.(api.Project).Id
+					projIds = append(projIds, projId)
+				})
+
+				batchPatchProjectGpu := func(gpu api.ResourcesPerNodePoolNullableGpu) (int, api.BatchPatchProjectResourcesResponse) {
+					batchRes, err := projectApiService2.BatchPatchProjectNodePoolResources(ctx, api.BatchPatchNodePoolResourcesRequest{
+						PatchRequests: []api.NodePoolResourcesPatchRequest{{
+							OrgUnitId:  projId,
+							NodePoolId: fmt.Sprint(defaultNodePoolId),
+							Resources:  &api.ResourcesPerNodePoolNullable{Gpu: &gpu},
+						}},
+					})
+					Expect(err).To(BeNil())
+					return batchRes.Code, batchRes.Body.(api.BatchPatchProjectResourcesResponse)
+				}
+
+				It("keeps the stored gpu deserved when only the limit is sent", func() {
+					code, body := batchPatchProjectGpu(api.ResourcesPerNodePoolNullableGpu{Limit: ptr.To(float64(2))})
+					Expect(code).To(Equal(http.StatusOK))
+					Expect(body.TotalFailed).To(Equal(int32(0)), fmt.Sprintf("failed: %+v", body.Failed))
+					Expect(body.Succeeded).To(HaveLen(1))
+					Expect(body.Succeeded[0].Resources.Gpu.Deserved).ToNot(BeNil())
+					Expect(*body.Succeeded[0].Resources.Gpu.Deserved).To(Equal(FullResourcesDeservedGpu))
+				})
+
+				It("checks the over quota weight against the stored gpu deserved", func() {
+					code, body := batchPatchProjectGpu(api.ResourcesPerNodePoolNullableGpu{OverQuotaWeight: ptr.To(FullResourcesDeservedGpu)})
+					Expect(code).To(Equal(http.StatusOK))
+					Expect(body.TotalFailed).To(Equal(int32(0)), fmt.Sprintf("failed: %+v", body.Failed))
+					Expect(*body.Succeeded[0].Resources.Gpu.Deserved).To(Equal(FullResourcesDeservedGpu))
+
+					// a batch where every request fails returns 500
+					code, body = batchPatchProjectGpu(api.ResourcesPerNodePoolNullableGpu{OverQuotaWeight: ptr.To(services.MinOverQuotaWeight)})
+					Expect(code).To(Equal(http.StatusInternalServerError))
+					Expect(body.TotalFailed).To(Equal(int32(1)))
+					Expect(body.Failed[0].Message).To(ContainSubstring("OverQuotaWeight should be deserved or empty"))
+				})
+
+				It("checks a department's over quota weight against its stored gpu deserved", func() {
+					batchRes, err := departmentApiService2.BatchPatchDepartmentNodePoolResources(ctx, api.BatchPatchNodePoolResourcesRequest{
+						PatchRequests: []api.NodePoolResourcesPatchRequest{{
+							OrgUnitId:  defaultDepId,
+							NodePoolId: fmt.Sprint(defaultNodePoolId),
+							Resources: &api.ResourcesPerNodePoolNullable{
+								Gpu: &api.ResourcesPerNodePoolNullableGpu{OverQuotaWeight: ptr.To(FullResourcesDeservedGpu)},
+							},
+						}},
+					})
+					Expect(err).To(BeNil())
+					Expect(batchRes.Code).To(Equal(http.StatusOK), fmt.Sprintf("got body: %+v", batchRes.Body))
+					body := batchRes.Body.(api.BatchPatchDepartmentResourcesResponse)
+					Expect(body.TotalFailed).To(Equal(int32(0)), fmt.Sprintf("failed: %+v", body.Failed))
+					Expect(*body.Succeeded[0].Resources.Gpu.Deserved).To(Equal(FullResourcesDeservedGpu))
+				})
 			})
 
 			It("create department/project fails when ranks are disabled on pool2 but non-default priority provided", func() {
@@ -1361,7 +1459,7 @@ var _ = Describe("Org unit tests", Ordered, func() {
 				for i := range depUpd.Resources {
 					if depUpd.Resources[i].NodePool.Name == "pool2" {
 						// attempt to set GPU quota on a nodepool with quota disabled
-						depUpd.Resources[i].Gpu.Deserved = ptr.To(float64(float64(1)))
+						depUpd.Resources[i].Gpu.Deserved = ptr.To(float64(1))
 					}
 				}
 				depUpdRes, err := departmentApiService2.UpdateDepartment(ctx, dep.Id, depUpd)
@@ -1394,7 +1492,7 @@ var _ = Describe("Org unit tests", Ordered, func() {
 				projUpd := getProjectUpdateRequest(proj)
 				for i := range projUpd.Resources {
 					if projUpd.Resources[i].NodePool.Name == "pool2" {
-						projUpd.Resources[i].Gpu.Deserved = ptr.To(float64(float64(1)))
+						projUpd.Resources[i].Gpu.Deserved = ptr.To(float64(1))
 					}
 				}
 				projUpdRes, err := projectApiService2.UpdateProject(ctx, proj.Id, projUpd)
