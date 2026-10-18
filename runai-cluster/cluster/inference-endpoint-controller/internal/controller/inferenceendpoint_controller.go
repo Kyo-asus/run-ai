@@ -53,12 +53,13 @@ const (
 	requeueNotReady = 10 * time.Second
 )
 
-// GVKs of the two child kinds the controller handles as unstructured objects,
-// so that it does not depend on the Gateway API or GIE Go modules.
+// GVKs of the child kinds the controller handles as unstructured objects, so
+// that it does not depend on the Gateway API or GIE Go modules.
 var (
-	poolGVK    = schema.GroupVersionKind{Group: "inference.networking.k8s.io", Version: "v1", Kind: "InferencePool"}
-	routeGVK   = schema.GroupVersionKind{Group: "gateway.networking.k8s.io", Version: "v1", Kind: "HTTPRoute"}
-	rewriteGVK = schema.GroupVersionKind{Group: "inference.networking.x-k8s.io", Version: "v1alpha2", Kind: "InferenceModelRewrite"}
+	poolGVK      = schema.GroupVersionKind{Group: "inference.networking.k8s.io", Version: "v1", Kind: "InferencePool"}
+	routeGVK     = schema.GroupVersionKind{Group: "gateway.networking.k8s.io", Version: "v1", Kind: "HTTPRoute"}
+	rewriteGVK   = schema.GroupVersionKind{Group: "inference.networking.x-k8s.io", Version: "v1alpha2", Kind: "InferenceModelRewrite"}
+	objectiveGVK = schema.GroupVersionKind{Group: "inference.networking.x-k8s.io", Version: "v1alpha2", Kind: "InferenceObjective"}
 )
 
 // scorerPlugins maps the CRD's scorer names to GIE plugin types.
@@ -89,11 +90,12 @@ type InferenceEndpointReconciler struct {
 // +kubebuilder:rbac:groups=rbac.authorization.k8s.io,resources=roles;rolebindings,verbs=get;list;watch;create;update;patch;delete
 //
 // +kubebuilder:rbac:groups=inference.networking.x-k8s.io,resources=inferencemodelrewrites,verbs=get;list;watch;create;update;patch;delete
+// +kubebuilder:rbac:groups=inference.networking.x-k8s.io,resources=inferenceobjectives,verbs=get;list;watch;create;update;patch;delete
 //
 // Permissions the generated Roles grant to the EPP. Kubernetes only lets the
-// controller create those Roles if it holds the same permissions itself.
+// controller create those Roles if it holds the same permissions itself. The
+// EPP also reads inferenceobjectives, covered by the child-object rule above.
 // +kubebuilder:rbac:groups="",resources=pods,verbs=get;list;watch
-// +kubebuilder:rbac:groups=inference.networking.x-k8s.io,resources=inferenceobjectives,verbs=get;list;watch
 
 // Reconcile renders the child objects for one InferenceEndpoint, applies them
 // with server-side apply, and reports whether the Gateway accepted the route
@@ -135,11 +137,15 @@ func (r *InferenceEndpointReconciler) Reconcile(ctx context.Context, req ctrl.Re
 	log.V(1).Info("Applied child objects", "count", len(children))
 
 	// Server-side apply never deletes: when the last rewrite is removed from the
-	// spec, the InferenceModelRewrite has to go explicitly.
+	// spec, the InferenceModelRewrite has to go explicitly, and an objective that
+	// left the list leaves behind its InferenceObjective.
 	if len(endpoint.Spec.Rewrites) == 0 {
 		if err := r.deleteRewrite(ctx, endpoint); err != nil {
 			return ctrl.Result{}, err
 		}
+	}
+	if err := r.deleteOrphanedObjectives(ctx, endpoint); err != nil {
+		return ctrl.Result{}, err
 	}
 
 	routeOK, routeMsg, err := r.routeAccepted(ctx, endpoint)
@@ -237,6 +243,9 @@ func inputFor(endpoint *inferencev1alpha1.InferenceEndpoint) (render.Input, erro
 		}
 		in.Rewrites = append(in.Rewrites, out)
 	}
+	for _, o := range endpoint.Spec.Objectives {
+		in.Objectives = append(in.Objectives, render.Objective{Model: o.Model, Priority: o.Priority})
+	}
 	return in, nil
 }
 
@@ -287,6 +296,34 @@ func (r *InferenceEndpointReconciler) deleteRewrite(ctx context.Context, endpoin
 	uid := rewrite.GetUID()
 	if err := r.Delete(ctx, rewrite, client.Preconditions{UID: &uid}); err != nil && !apierrors.IsNotFound(err) {
 		return fmt.Errorf("delete stale InferenceModelRewrite: %w", err)
+	}
+	return nil
+}
+
+// deleteOrphanedObjectives removes the endpoint's InferenceObjectives whose
+// model is no longer in the spec. Objects are matched by the endpoint label and
+// the controller owner reference, so a hand-made objective in the namespace is
+// left alone.
+func (r *InferenceEndpointReconciler) deleteOrphanedObjectives(ctx context.Context, endpoint *inferencev1alpha1.InferenceEndpoint) error {
+	wanted := make(map[string]struct{}, len(endpoint.Spec.Objectives))
+	for _, o := range endpoint.Spec.Objectives {
+		wanted[render.ObjectiveName(endpoint.Name, o.Model)] = struct{}{}
+	}
+
+	objectives := &unstructured.UnstructuredList{}
+	objectives.SetGroupVersionKind(objectiveGVK)
+	if err := r.List(ctx, objectives, client.InNamespace(endpoint.Namespace),
+		client.MatchingLabels{render.EndpointLabel: endpoint.Name}); err != nil {
+		return fmt.Errorf("list InferenceObjectives: %w", err)
+	}
+	for i := range objectives.Items {
+		objective := &objectives.Items[i]
+		if _, keep := wanted[objective.GetName()]; keep || !metav1.IsControlledBy(objective, endpoint) {
+			continue
+		}
+		if err := r.Delete(ctx, objective); err != nil && !apierrors.IsNotFound(err) {
+			return fmt.Errorf("delete stale InferenceObjective %s: %w", objective.GetName(), err)
+		}
 	}
 	return nil
 }
@@ -395,12 +432,15 @@ func (r *InferenceEndpointReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	route.SetGroupVersionKind(routeGVK)
 	rewrite := &unstructured.Unstructured{}
 	rewrite.SetGroupVersionKind(rewriteGVK)
+	objective := &unstructured.Unstructured{}
+	objective.SetGroupVersionKind(objectiveGVK)
 
 	return ctrl.NewControllerManagedBy(mgr).
 		For(&inferencev1alpha1.InferenceEndpoint{}).
 		Owns(pool).
 		Owns(route).
 		Owns(rewrite).
+		Owns(objective).
 		Owns(&appsv1.Deployment{}).
 		Owns(&corev1.Service{}).
 		Owns(&corev1.ConfigMap{}).

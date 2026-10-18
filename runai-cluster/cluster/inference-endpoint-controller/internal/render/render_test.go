@@ -11,6 +11,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"strings"
 
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
@@ -26,8 +27,9 @@ import (
 const goldenDir = "../../test/testdata/golden"
 
 var (
-	goldenStack   = []string{"03-inferencepool.yaml", "04-epp.yaml", "05-httproute.yaml"}
-	goldenRewrite = []string{"07-phase1-modelrewrite.yaml"}
+	goldenStack     = []string{"03-inferencepool.yaml", "04-epp.yaml", "05-httproute.yaml"}
+	goldenObjective = []string{"06-phase1-inferenceobjective.yaml"}
+	goldenRewrite   = []string{"07-phase1-modelrewrite.yaml"}
 )
 
 const (
@@ -67,6 +69,11 @@ func llama3Canary() []render.Rewrite {
 	}}
 }
 
+// llama3Lane is Track A step 6: one priority lane for the llama3 model.
+func llama3Lane() []render.Objective {
+	return []render.Objective{{Model: llama3Name, Priority: 10}}
+}
+
 var _ = Describe("Render", func() {
 	DescribeTable("keeps YAML document markers inside user-provided strings", func(field string) {
 		in := llama3Input()
@@ -80,6 +87,9 @@ var _ = Describe("Render", func() {
 		case "rewrite":
 			in.Rewrites = []render.Rewrite{{Model: payload, Targets: []render.RewriteTarget{{Model: payload, Weight: 1}}}}
 			expectedCount++
+		case "objective":
+			in.Objectives = []render.Objective{{Model: payload, Priority: 1}}
+			expectedCount++
 		}
 		objects, err := render.Render(in)
 		Expect(err).NotTo(HaveOccurred())
@@ -88,7 +98,7 @@ var _ = Describe("Render", func() {
 			Expect(object.GetName()).NotTo(Equal("injected"))
 			Expect(object.GetNamespace()).To(Equal(in.Namespace))
 		}
-	}, Entry("hostname", "hostname"), Entry("image", "image"), Entry("rewrite models", "rewrite"))
+	}, Entry("hostname", "hostname"), Entry("image", "image"), Entry("rewrite models", "rewrite"), Entry("objective models", "objective"))
 
 	It("preserves scalar-looking strings in routes, images, and rewrites", func() {
 		in := llama3Input()
@@ -159,7 +169,79 @@ var _ = Describe("Render", func() {
 		It("renders no InferenceModelRewrite when there are no rewrites", func() {
 			Expect(rendered).NotTo(HaveKey("InferenceModelRewrite/llama3-rewrite"))
 		})
+
+		It("renders no InferenceObjective when there are no objectives", func() {
+			for k := range rendered {
+				Expect(k).NotTo(HavePrefix("InferenceObjective/"))
+			}
+		})
 	})
+
+	Context("objectives", func() {
+		It("reproduces the Track A priority lane golden exactly", func() {
+			in := llama3Input()
+			in.Objectives = llama3Lane()
+			rendered := byKey(must(render.Render(in)))
+			Expect(rendered).To(HaveLen(11), "10 stack objects + 1 InferenceObjective")
+
+			golden := loadGolden(goldenObjective...)
+			want := golden["InferenceObjective/llama3-objective-llama3"]
+			Expect(want).NotTo(BeNil())
+			got := rendered["InferenceObjective/llama3-objective-llama3"]
+			Expect(got).NotTo(BeNil())
+			normalizeForGolden(want, got)
+			Expect(got.Object).To(Equal(want.Object))
+		})
+
+		It("renders one InferenceObjective per lane, named after the sanitized model", func() {
+			in := llama3Input()
+			in.Objectives = append(llama3Lane(), render.Objective{Model: "meta/Llama-3.1_8B", Priority: 0})
+			rendered := byKey(must(render.Render(in)))
+			Expect(rendered).To(HaveLen(12))
+
+			second := rendered["InferenceObjective/llama3-objective-meta-llama-3-1-8b"]
+			Expect(second).NotTo(BeNil())
+			Expect(second.GetNamespace()).To(Equal(llama3Ns))
+			Expect(second.GetLabels()).To(HaveKeyWithValue(render.EndpointLabel, llama3Name))
+			priority, found, err := unstructured.NestedInt64(second.Object, "spec", "priority")
+			Expect(err).NotTo(HaveOccurred())
+			Expect(found).To(BeTrue(), "priority 0 must be written explicitly")
+			Expect(priority).To(BeZero())
+			pool, _, _ := unstructured.NestedString(second.Object, "spec", "poolRef", keyName)
+			Expect(pool).To(Equal("llama3-pool"))
+		})
+
+		It("does not change the EPP config hash", func() {
+			in := llama3Input()
+			in.Objectives = llama3Lane()
+			withLane := configHash(byKey(must(render.Render(in)))["Deployment/llama3-epp"])
+			without := configHash(byKey(must(render.Render(llama3Input())))["Deployment/llama3-epp"])
+			Expect(withLane).To(Equal(without), "objectives are live objects and must not restart the EPP")
+		})
+
+		DescribeTable("rejects lanes that cannot become distinct objects",
+			func(objectives []render.Objective, fragment string) {
+				in := llama3Input()
+				in.Objectives = objectives
+				_, err := render.Render(in)
+				Expect(err).To(MatchError(ContainSubstring(fragment)))
+			},
+			Entry("no model", []render.Objective{{Model: "", Priority: 1}}, "has no model"),
+			Entry("negative priority", []render.Objective{{Model: llama3Name, Priority: -1}}, "below 0"),
+			Entry("repeated model", []render.Objective{{Model: llama3Name, Priority: 1}, {Model: llama3Name, Priority: 2}}, "repeats the model"),
+			Entry("models with the same label", []render.Objective{{Model: "Llama3", Priority: 1}, {Model: "llama3", Priority: 2}}, "both map to InferenceObjective llama3-objective-llama3"),
+			Entry("model without label characters", []render.Objective{{Model: "///", Priority: 1}}, "no DNS label characters"),
+		)
+	})
+
+	DescribeTable("DNSLabel",
+		func(in, want string) { Expect(render.DNSLabel(in)).To(Equal(want)) },
+		Entry("already a label", "llama3", "llama3"),
+		Entry("upper case and separators", "meta/Llama-3.1_8B", "meta-llama-3-1-8b"),
+		Entry("leading and trailing separators", "--chat--", "chat"),
+		Entry("only separators", "///", ""),
+		Entry("truncated to 63 without a trailing dash", strings.Repeat("a", 62)+"-bcd", strings.Repeat("a", 62)),
+	)
 
 	Context("scorer weights", func() {
 		It("writes the scorers and weights into the EPP config and changes the hash", func() {
@@ -339,6 +421,7 @@ var _ = Describe("Render", func() {
 		Entry("zero port", func(in *render.Input) { in.Port = 0 }),
 		Entry("scorer without plugin", func(in *render.Input) { in.Scorers = []render.Scorer{{Plugin: "", Weight: 1}} }),
 		Entry("rewrite without targets", func(in *render.Input) { in.Rewrites = []render.Rewrite{{Model: "x"}} }),
+		Entry("objective without model", func(in *render.Input) { in.Objectives = []render.Objective{{Priority: 1}} }),
 	)
 
 	It("defaults the gateway namespace to the endpoint namespace", func() {

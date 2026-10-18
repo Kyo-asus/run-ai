@@ -35,6 +35,12 @@ tests:
             apiGroups: [rbac.authorization.k8s.io]
             resources: [rolebindings, roles]
             verbs: [create, delete, get, list, patch, update, watch]
+      - contains:
+          path: rules
+          content:
+            apiGroups: [inference.networking.x-k8s.io]
+            resources: [inferenceobjectives]
+            verbs: [create, delete, get, list, patch, update, watch]
   - it: scopes leader election to the controller namespace
     documentSelector:
       path: kind

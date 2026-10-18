@@ -3,7 +3,8 @@
 ## TL;DR
 
 Viper-owned controller that turns an `InferenceEndpoint` into an HTTPRoute,
-InferencePool, endpoint-picker Deployment, and optional model rewrites.
+InferencePool, endpoint-picker Deployment, optional model rewrites, and optional
+priority lanes (`spec.objectives[]`, one InferenceObjective per model).
 The Run:ai operator installs it on the workload cluster, with configurable
 image, replicas, resources, affinity, logging, and metrics.
 

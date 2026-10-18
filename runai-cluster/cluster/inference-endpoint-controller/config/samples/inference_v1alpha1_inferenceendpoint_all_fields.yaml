@@ -52,6 +52,13 @@ spec:
       weight: 1
   # Each source model may occur once. Removing all rules deletes the generated rewrite.
 
+  objectives: # Optional. Changes apply live without restarting EPP Pods.
+  - model: llama3 # Required; names the lane. The InferenceObjective is called <endpoint>-objective-<model>.
+    priority: 10 # Required, >=0. Higher is served first when the pool is saturated; 0 is the no-lane default.
+  - model: chat-alias # A second lane demonstrates the default priority.
+    priority: 0
+  # Each model may occur once. Removing a lane deletes its generated InferenceObjective.
+
 # Controller-written status: illustrative output only, not user configuration.
 # The values below are examples, not an observed cluster state. They show every
 # implemented status field; observedGeneration refers to metadata.generation.

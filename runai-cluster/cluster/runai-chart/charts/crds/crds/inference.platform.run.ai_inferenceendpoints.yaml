@@ -216,6 +216,37 @@ spec:
                 - message: scheduling.profiles requires the llm-d-v0.10 profile
                   rule: '!has(self.scheduling) || !has(self.scheduling.profiles) ||
                     (has(self.profile) && self.profile == ''llm-d-v0.10'')'
+              objectives:
+                description: objectives are priority lanes per model name, applied
+                  live by the EPP.
+                items:
+                  description: |-
+                    ObjectiveSpec is one priority lane. It becomes an InferenceObjective the EPP
+                    reads at runtime: when the pool is saturated, requests in a higher-priority
+                    lane are served first and lower lanes are queued or shed.
+                  properties:
+                    model:
+                      description: |-
+                        model is the exact name clients put in the request body. The generated
+                        InferenceObjective is named after it, which is how the EPP finds the lane.
+                      minLength: 1
+                      type: string
+                    priority:
+                      description: |-
+                        priority of this lane relative to the other lanes of the same pool. 0 is
+                        the value the EPP assumes for requests without a lane, so lanes cannot
+                        go below it.
+                      format: int32
+                      minimum: 0
+                      type: integer
+                  required:
+                  - model
+                  - priority
+                  type: object
+                type: array
+                x-kubernetes-list-map-keys:
+                - model
+                x-kubernetes-list-type: map
               rewrites:
                 description: rewrites are model aliases and canary splits, applied
                   live by the EPP.

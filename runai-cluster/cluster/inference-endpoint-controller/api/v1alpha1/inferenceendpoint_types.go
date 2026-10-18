@@ -251,6 +251,24 @@ type RewriteSpec struct {
 	Targets []RewriteTarget `json:"targets"`
 }
 
+// ObjectiveSpec is one priority lane. It becomes an InferenceObjective the EPP
+// reads at runtime: when the pool is saturated, requests in a higher-priority
+// lane are served first and lower lanes are queued or shed.
+type ObjectiveSpec struct {
+	// model is the exact name clients put in the request body. The generated
+	// InferenceObjective is named after it, which is how the EPP finds the lane.
+	// +required
+	// +kubebuilder:validation:MinLength=1
+	Model string `json:"model"`
+
+	// priority of this lane relative to the other lanes of the same pool. 0 is
+	// the value the EPP assumes for requests without a lane, so lanes cannot
+	// go below it.
+	// +required
+	// +kubebuilder:validation:Minimum=0
+	Priority int32 `json:"priority"`
+}
+
 // InferenceEndpointSpec defines the desired state of InferenceEndpoint.
 type InferenceEndpointSpec struct {
 	// workload identifies the serving pods.
@@ -270,6 +288,12 @@ type InferenceEndpointSpec struct {
 	// +listType=map
 	// +listMapKey=model
 	Rewrites []RewriteSpec `json:"rewrites,omitempty"`
+
+	// objectives are priority lanes per model name, applied live by the EPP.
+	// +optional
+	// +listType=map
+	// +listMapKey=model
+	Objectives []ObjectiveSpec `json:"objectives,omitempty"`
 }
 
 // InferenceEndpointStatus defines the observed state of InferenceEndpoint.

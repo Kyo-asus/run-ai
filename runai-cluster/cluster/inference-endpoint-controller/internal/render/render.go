@@ -5,10 +5,10 @@
 
 // Package render turns one InferenceEndpoint into the Kubernetes objects that
 // make up its routing stack: an InferencePool, the endpoint-picker (EPP) stack,
-// an optional InferenceModelRewrite, and an HTTPRoute.
+// an optional InferenceModelRewrite, optional InferenceObjectives, and an HTTPRoute.
 //
 // The objects are produced from YAML templates that were derived directly from
-// the hand-written Track A lab manifests (test/testdata/golden/03, 04, 05, 07). Keeping
+// the hand-written Track A lab manifests (test/testdata/golden/03, 04, 05, 06, 07). Keeping
 // them as templates rather than typed builders is a deliberate v0 choice: it
 // lets the tests assert that the controller emits exactly what the lab applied
 // by hand.
@@ -23,6 +23,8 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"regexp"
+	"strings"
 	"text/template"
 
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
@@ -50,13 +52,38 @@ var templates = template.Must(
 			encoded, err := json.Marshal(value)
 			return string(encoded), err
 		},
+		"dnsLabel": DNSLabel,
 	}).ParseFS(templateFS, "templates/*.yaml"),
 )
 
 // templateOrder is the apply order: the pool first so the EPP can find it, the
-// rewrite after the pool it references, the route last so the Gateway never
-// points at a pool that does not exist yet.
-var templateOrder = []string{"pool.yaml", "epp.yaml", "rewrite.yaml", "route.yaml"}
+// rewrite and objectives after the pool they reference, the route last so the
+// Gateway never points at a pool that does not exist yet.
+var templateOrder = []string{"pool.yaml", "epp.yaml", "rewrite.yaml", "objective.yaml", "route.yaml"}
+
+// maxDNSLabel is the RFC 1123 label length limit Kubernetes applies to names.
+const maxDNSLabel = 63
+
+var notDNSLabelChars = regexp.MustCompile(`[^a-z0-9]+`)
+
+// DNSLabel turns a free-form model name into a DNS-1123 label so it can be
+// part of an object name: lower case, non-alphanumerics collapsed to one dash,
+// no leading or trailing dash, at most 63 characters. Distinct names can
+// collide ("Llama3" and "llama3"); validate rejects such input.
+func DNSLabel(value string) string {
+	label := notDNSLabelChars.ReplaceAllString(strings.ToLower(value), "-")
+	label = strings.Trim(label, "-")
+	if len(label) > maxDNSLabel {
+		label = strings.TrimRight(label[:maxDNSLabel], "-")
+	}
+	return label
+}
+
+// ObjectiveName is the name of the InferenceObjective rendered for one model of
+// the given endpoint. The controller uses it to find lanes that left the spec.
+func ObjectiveName(endpoint, model string) string {
+	return endpoint + "-objective-" + DNSLabel(model)
+}
 
 // Scorer is one GIE scoring plugin and its weight in the default profile.
 type Scorer struct {
@@ -88,11 +115,18 @@ type Rewrite struct {
 	Targets []RewriteTarget
 }
 
+// Objective is one priority lane. Each objective becomes its own
+// InferenceObjective, because the EPP selects a lane by object name.
+type Objective struct {
+	Model    string
+	Priority int32
+}
+
 // Input is everything the templates need. It is a flat projection of the
 // InferenceEndpoint spec plus the object's name and namespace.
 type Input struct {
 	// Name of the InferenceEndpoint. Child objects are named <Name>-pool,
-	// <Name>-epp, <Name>-rewrite and <Name>-route.
+	// <Name>-epp, <Name>-rewrite, <Name>-objective-<model> and <Name>-route.
 	Name string
 	// Namespace of the InferenceEndpoint and of every child object.
 	Namespace string
@@ -123,6 +157,8 @@ type Input struct {
 	// Rewrites are model aliases and canary splits. Empty means no
 	// InferenceModelRewrite is rendered.
 	Rewrites []Rewrite
+	// Objectives are priority lanes. Empty means no InferenceObjective is rendered.
+	Objectives []Objective
 }
 
 func (in *Input) validate() error {
@@ -168,6 +204,29 @@ func (in *Input) validate() error {
 				errs = append(errs, fmt.Errorf("rewrites[%d].targets[%d] needs a model and a weight >= 1", i, j))
 			}
 		}
+	}
+	seenModels := map[string]int{}
+	seenNames := map[string]int{}
+	for i, o := range in.Objectives {
+		if o.Model == "" {
+			errs = append(errs, fmt.Errorf("objectives[%d] has no model", i))
+			continue
+		}
+		if o.Priority < 0 {
+			errs = append(errs, fmt.Errorf("objectives[%d] priority %d is below 0", i, o.Priority))
+		}
+		if j, dup := seenModels[o.Model]; dup {
+			errs = append(errs, fmt.Errorf("objectives[%d] repeats the model of objectives[%d]", i, j))
+			continue
+		}
+		seenModels[o.Model] = i
+		name := ObjectiveName(in.Name, o.Model)
+		if DNSLabel(o.Model) == "" {
+			errs = append(errs, fmt.Errorf("objectives[%d] model %q has no DNS label characters", i, o.Model))
+		} else if j, dup := seenNames[name]; dup {
+			errs = append(errs, fmt.Errorf("objectives[%d] and objectives[%d] both map to InferenceObjective %s", i, j, name))
+		}
+		seenNames[name] = i
 	}
 	if in.GatewayNamespace == "" {
 		in.GatewayNamespace = in.Namespace

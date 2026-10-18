@@ -389,6 +389,60 @@ var _ = Describe("InferenceEndpoint Controller", func() {
 			"apiVersion": rewriteGVK.GroupVersion().String(), "kind": rewriteGVK.Kind}}))).To(BeTrue(), "rewrite object removed with the field")
 	})
 
+	It("creates, shrinks and removes InferenceObjectives with the objectives field", func() {
+		_, err := reconciler.Reconcile(ctx, request)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(ownedObjectives(ctx, ns)).To(BeEmpty(), "no objective objects without objectives")
+
+		By("adding two priority lanes")
+		Expect(k8sClient.Get(ctx, request.NamespacedName, endpoint)).To(Succeed())
+		endpoint.Spec.Objectives = []inferencev1alpha1.ObjectiveSpec{{Model: "llama3", Priority: 10}, {Model: "chat-alias", Priority: 0}}
+		Expect(k8sClient.Update(ctx, endpoint)).To(Succeed())
+		_, err = reconciler.Reconcile(ctx, request)
+		Expect(err).NotTo(HaveOccurred())
+		objectives := ownedObjectives(ctx, ns)
+		Expect(objectives).To(HaveLen(2))
+		gold := objectives[render.ObjectiveName(endpointName, "llama3")]
+		Expect(gold).NotTo(BeNil())
+		Expect(metav1.IsControlledBy(gold, endpoint)).To(BeTrue())
+		priority, _, _ := unstructured.NestedInt64(gold.Object, "spec", "priority")
+		Expect(priority).To(Equal(int64(10)))
+		pool, _, _ := unstructured.NestedString(gold.Object, "spec", "poolRef", testNameKey)
+		Expect(pool).To(Equal(poolName))
+		Expect(objectives).To(HaveKey(render.ObjectiveName(endpointName, "chat-alias")))
+
+		By("creating a hand-made objective with the endpoint label but no owner")
+		foreign := &unstructured.Unstructured{}
+		foreign.SetGroupVersionKind(objectiveGVK)
+		foreign.SetName("hand-made")
+		foreign.SetNamespace(ns)
+		foreign.SetLabels(map[string]string{render.EndpointLabel: endpointName})
+		Expect(unstructured.SetNestedField(foreign.Object, poolName, "spec", "poolRef", testNameKey)).To(Succeed())
+		Expect(k8sClient.Create(ctx, foreign)).To(Succeed())
+
+		By("removing one lane")
+		Expect(k8sClient.Get(ctx, request.NamespacedName, endpoint)).To(Succeed())
+		endpoint.Spec.Objectives = endpoint.Spec.Objectives[:1]
+		Expect(k8sClient.Update(ctx, endpoint)).To(Succeed())
+		_, err = reconciler.Reconcile(ctx, request)
+		Expect(err).NotTo(HaveOccurred())
+		objectives = ownedObjectives(ctx, ns)
+		Expect(objectives).To(HaveLen(2), "the remaining lane and the hand-made object")
+		Expect(objectives).To(HaveKey(render.ObjectiveName(endpointName, "llama3")))
+		Expect(objectives).NotTo(HaveKey(render.ObjectiveName(endpointName, "chat-alias")), "orphaned lane removed")
+		Expect(objectives).To(HaveKey("hand-made"))
+
+		By("removing the objectives again")
+		Expect(k8sClient.Get(ctx, request.NamespacedName, endpoint)).To(Succeed())
+		endpoint.Spec.Objectives = nil
+		Expect(k8sClient.Update(ctx, endpoint)).To(Succeed())
+		_, err = reconciler.Reconcile(ctx, request)
+		Expect(err).NotTo(HaveOccurred())
+		objectives = ownedObjectives(ctx, ns)
+		Expect(objectives).To(HaveLen(1), "only the hand-made object survives")
+		Expect(objectives).To(HaveKey("hand-made"))
+	})
+
 	It("does nothing when the endpoint no longer exists", func() {
 		_, err := reconciler.Reconcile(ctx, reconcile.Request{
 			NamespacedName: types.NamespacedName{Name: "never-created", Namespace: ns},
@@ -409,6 +463,19 @@ func endpointWithEpp(endpoint *inferencev1alpha1.InferenceEndpoint, epp map[stri
 	candidate.SetName("profiled")
 	candidate.SetNamespace(endpoint.Namespace)
 	return candidate
+}
+
+// ownedObjectives lists the InferenceObjectives in the namespace that carry the
+// endpoint label, keyed by name.
+func ownedObjectives(ctx context.Context, ns string) map[string]*unstructured.Unstructured {
+	list := &unstructured.UnstructuredList{}
+	list.SetGroupVersionKind(objectiveGVK)
+	ExpectWithOffset(1, k8sClient.List(ctx, list, client.InNamespace(ns), client.MatchingLabels{render.EndpointLabel: endpointName})).To(Succeed())
+	out := map[string]*unstructured.Unstructured{}
+	for i := range list.Items {
+		out[list.Items[i].GetName()] = &list.Items[i]
+	}
+	return out
 }
 
 // acceptRoute writes the parent status a Gateway controller would write:
