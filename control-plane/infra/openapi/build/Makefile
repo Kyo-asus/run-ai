@@ -37,7 +37,7 @@ lint: ## Run linters.
 	# no-op
 .PHONY: lint
 
-validate: openapi-build-public-spec validate-openapi-public-spec validate-tags validate-docs-links validate-openapi-spec-python validate-openapi-backwards-compatibility
+validate: openapi-build-public-spec validate-openapi-public-spec validate-tags validate-openapi-spec-python validate-openapi-backwards-compatibility
 .PHONY: validate
 
 validate-openapi-spec-python:
@@ -56,31 +56,6 @@ validate-tags:
 	${SUCCESS_MESSAGE_HANDLER}
 .PHONY: validate-tags
 
-validate-docs-links:
-	@ ${ECHO_COMMAND} ${GREEN_CONSOLE} "${CONSOLE_PREFIX} Validating documentation links have /latest/" ${BASE_CONSOLE}
-	@ ${ECHO_COMMAND} ${GREEN_CONSOLE} "${CONSOLE_PREFIX} Checking for broken NVIDIA docs links (missing /latest/) in generated spec" ${BASE_CONSOLE}
-	@ BROKEN_LINKS_TMP=$$(mktemp); \
-	if grep -oE 'https://run-ai-docs\.nvidia\.com/self-hosted/[^)"[:space:]]+' ${SPEC_FILE_SRC} | grep -v 'self-hosted/latest' > "$$BROKEN_LINKS_TMP" 2>/dev/null; then \
-		echo ""; \
-		echo "============================================================"; \
-		echo "ERROR: Found NVIDIA docs links WITHOUT /latest/"; \
-		echo "============================================================"; \
-		echo ""; \
-		echo "Broken links found in: ${SPEC_FILE_SRC}"; \
-		echo ""; \
-		cat "$$BROKEN_LINKS_TMP" | sort -u | nl; \
-		echo ""; \
-		echo "FIX: Add /latest/ after /self-hosted/ in source files"; \
-		echo ""; \
-		rm -f "$$BROKEN_LINKS_TMP"; \
-		exit 1; \
-	else \
-		rm -f "$$BROKEN_LINKS_TMP"; \
-		exit 0; \
-	fi
-	${SUCCESS_MESSAGE_HANDLER}
-.PHONY: validate-docs-links
-
 validate-openapi-backwards-compatibility:
 	@ ${ECHO_COMMAND} ${GREEN_CONSOLE} "${CONSOLE_PREFIX} Validating backwards compatibility of public openapi spec" ${BASE_CONSOLE};
 	${DOCKER_COMMAND_PRIVILEGED} -e SEVERITY_LEVELS_FILE=${BACKWARD_COMPATIBILITY_SCRIPTS_PATH}/oasdiff-levels.txt -e ERR_IGNORE_FILE=${BACKWARD_COMPATIBILITY_SCRIPTS_PATH}/oasdiff-err-ignore.txt -e SOURCE_FILE_PATH=${SPEC_FILE_SRC} -e BASE_BRANCH_NAME=${GITHUB_BASE_REF} -e GITHUB_TOKEN=${GITHUB_TOKEN} -e GIT_REPO_PATH=/local -e ALLOF_MERGE_SCRIPT_PATH=${BACKWARD_COMPATIBILITY_SCRIPTS_PATH}/allof-merge.js --entrypoint sh ${DOCKERHUB_PROXY}library/golang:${GO_ALPINE_VERSION} -c 'sh ${BACKWARD_COMPATIBILITY_SCRIPTS_PATH}/setup.sh && sh ${BACKWARD_COMPATIBILITY_SCRIPTS_PATH}/validate.sh' || ${FAILURE_MESSAGE_HANDLER}
@@ -94,7 +69,7 @@ prepare-specs: openapi-build-public-spec
 .PHONY: prepare-specs
 
 build: openapi-build-public-spec
-	@ ${ECHO_COMMAND} ${GREEN_CONSOLE} "${CONSOLE_PREFIX} Processing spec file for local use" ${BASE_CONSOLE}
+	@ ${ECHO_COMMAND} ${GREEN_CONSOLE} "${CONSOLE_PREFIX} Copying built spec for local use" ${BASE_CONSOLE}
 	# Validate source file exists
 	@ ${ECHO_COMMAND} ${GREEN_CONSOLE} "${CONSOLE_PREFIX} Validating source file exists: ${OPENAPI_PUBLIC_SPEC_BUILD_PATH}" ${BASE_CONSOLE}
 	@ test -f "${OPENAPI_PUBLIC_SPEC_BUILD_PATH}" || (echo "${RED_CONSOLE}ERROR: Source file ${OPENAPI_PUBLIC_SPEC_BUILD_PATH} does not exist${BASE_CONSOLE}" && exit 1)

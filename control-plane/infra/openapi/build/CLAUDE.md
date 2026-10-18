@@ -1,7 +1,6 @@
 # openapi/build — Build Context
 
 **Type:** none (`artifact_type: "none"` — no image, no binary)
-**Team:** Sphinx (`artifact-metadata.json`)
 **Service name:** openapi/build
 **Artifact:** processed spec files under `_build/` (`cache_artifacts: true`, `path_to_artifacts: _build/`)
 
@@ -21,7 +20,7 @@ Targets come from the service `Makefile` plus shared includes
 | `prepare-specs` | `openapi-build-public-spec` then copy public + system-scoped specs into `_build/` |
 | `test` | No-op |
 | `lint` | No-op |
-| `validate` | `validate-openapi-public-spec` + `validate-tags` + `validate-docs-links` + `validate-openapi-spec-python` + `validate-openapi-backwards-compatibility` (all `continue_on_error` per metadata) |
+| `validate` | `validate-openapi-public-spec` + `validate-tags` + `validate-openapi-spec-python` + `validate-openapi-backwards-compatibility` (all `continue_on_error` per metadata) |
 
 ## Key build notes
 
@@ -30,16 +29,16 @@ Targets come from the service `Makefile` plus shared includes
   deployed as a workload. The deployed control plane serves public docs
   externally (chart value `redoc.docsSite.url`); on SaaS `/api/docs` redirects
   there.
-- **Build == spec processing.** `build` merges service swagger via
+- **Build == spec merging.** `build` merges service swagger via
   `openapi-merge-cli`, bundles/filters with redocly (`config/redocly*.yaml` +
   `plugins/internal-filters.js`, `plugins/system-scoped-filters.js`) to strip
-  `x-internal` endpoints and internal enum values.
+  `x-internal` endpoints and internal enum values; there is no further post-processing.
 - **No external publish step.** This module only produces local build
   artifacts.
 - **Source specs:** `SPEC_FILE_SRC=../infra/openapi/specs/runai-public.yaml` and
   `SPEC_FILE_SRC_SYSTEM=../infra/openapi/specs/runai-system-scoped.yaml`.
 - **Validation gates:** no `x-internal`/`x-authorization` tags in the built spec;
-  all docs links carry `/latest/`; spec generates a Python client; `oasdiff`
+  spec generates a Python client; `oasdiff`
   backwards-compatibility check against the base branch.
 - **Node deps:** `scripts/cli/package.json` (openapi-merge-cli / redocly).
 

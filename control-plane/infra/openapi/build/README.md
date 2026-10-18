@@ -2,8 +2,8 @@
 
 `openapi/build` is the control-plane component that **builds Run:ai's public
 OpenAPI documentation spec**. It merges the individual service swagger files
-into a single public spec and filters out internal endpoints/fields for
-local/CI use. It is owned by the **Sphinx** team.
+into a single public spec, and filters out internal endpoints/fields
+for local/CI use.
 
 This module does **not** build or ship a container image, and it does not
 serve docs at runtime. Its `artifact_type` is `none`: the build produces
@@ -58,7 +58,7 @@ The module is responsible for:
 
 Built through the [`Makefile`](Makefile), which includes
 `../../build/makefile/control-plane.mk` and `index.mk`. There is **no Go binary
-and no Docker image** — the "build" is spec processing. The merge / redocly
+and no Docker image** — the "build" is spec merging and filtering. The merge / redocly
 tooling runs in a Node.js container invoked by the shared makefile targets.
 
 | Target | Description |
@@ -84,9 +84,8 @@ on error per `artifact-metadata.json`):
 
 | Target | Description |
 |--------|-------------|
-| `make validate` | `validate-openapi-public-spec` + `validate-tags` + `validate-docs-links` + `validate-openapi-spec-python` + `validate-openapi-backwards-compatibility` |
+| `make validate` | `validate-openapi-public-spec` + `validate-tags` + `validate-openapi-spec-python` + `validate-openapi-backwards-compatibility` |
 | `validate-tags` | Fail if the built spec still contains `x-internal` or `x-authorization` tags |
-| `validate-docs-links` | Fail if any `run-ai-docs.nvidia.com/self-hosted/...` link is missing the `/latest/` segment |
 | `validate-openapi-spec-python` | Generate a Python client from the spec via OpenAPI Generator as a smoke test |
 | `validate-openapi-backwards-compatibility` | Run `oasdiff` against the base branch to catch breaking public-API changes |
 
