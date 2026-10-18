@@ -177,13 +177,13 @@ helm upgrade runai-backend ./charts/control-plane-<VERSION>.tgz -n runai-backend
 
 **Support-Entitled**
 
-Add `--set supportEntitled=true` and `--set telemetryService.enabled=true` to the `helm upgrade` command:
+Add `--set supportEntitled=true` to the `helm upgrade` command:
 
 <Note>
 
 **Note**
 
-These flags are new in v3.0, so add them explicitly when upgrading from v2.26 or earlier. When you upgrade from v3.0 or later, `--reset-then-reuse-values` keeps them, so you do not need to pass them again.
+This flag is new in v3.0, so add it explicitly when upgrading from v2.26 or earlier. When you upgrade from v3.0 or later, `--reset-then-reuse-values` keeps it, so you do not need to pass it again.
 
 </Note>
 
@@ -191,8 +191,7 @@ These flags are new in v3.0, so add them explicitly when upgrading from v2.26 or
 helm upgrade runai-backend ./charts/control-plane-<VERSION>.tgz -n runai-backend \
   -f <VALUES_DIR>/control-plane-airgap-values.yaml \
   --reset-then-reuse-values \
-  --set supportEntitled=true \
-  --set telemetryService.enabled=true
+  --set supportEntitled=true
 ```
 
 </Accordion>
