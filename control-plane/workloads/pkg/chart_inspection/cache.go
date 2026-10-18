@@ -26,6 +26,16 @@ import (
 	"github.com/dsx-ai-factory/run-ai/runai-common-packages/runaictx"
 )
 
+// Inspection flow:
+// - Callers authorize every request, including cache hits.
+// - CP cache stores parsed metadata for exact-version HTTPS NGC charts (default: 10 minutes).
+//   Archive bytes are never cached. Custom URLs and uploads always fetch fresh data.
+// - Cache misses start a local worker that fetches and parses the chart.
+//   Matching NGC requests share that worker; keys isolate charts, caller scope and credentials.
+// - At most four workers run at once; excess new work returns 503.
+//   A worker is cancelled when its last caller leaves.
+// - Cache failures never fail inspection.
+
 const (
 	inspectionParserVersion  = "questions-v2"
 	cacheSaltBytes           = sha256.Size
@@ -35,17 +45,15 @@ const (
 	maxConcurrentInspections = 4
 )
 
-// DefaultCacheTTL applies only to exact-version HTTPS NGC repository selections.
+// DefaultCacheTTL is the NGC metadata lifetime.
 const DefaultCacheTTL = 10 * time.Minute
 
-// Keep metadata encoded through the shared cache's JSON round trip; decoding
-// generic question defaults there would turn integers into float64 values.
+// Raw JSON prevents the CP cache from converting integer defaults to float64.
 type chartInspectionMetadata struct {
 	Data json.RawMessage `json:"data"`
 }
 
-// inspectionFlight tracks one acquisition and its result. Eligible NGC requests
-// share it; each waiter can leave independently without cancelling the others.
+// inspectionFlight holds one worker and its result. Matching NGC callers share it.
 type inspectionFlight struct {
 	done    chan struct{}
 	cancel  context.CancelFunc
@@ -54,9 +62,9 @@ type inspectionFlight struct {
 	err     *api.Error
 }
 
-// Inspector caches successful NGC repository metadata and bounds all expensive inspections.
-// Callers must authorize the chart source and credential on EVERY request, including cache hits.
-// Scope must include tenant, caller and authorization-relevant groups, derived from trusted context.
+// Inspector caches NGC metadata and limits concurrent inspections.
+// Callers must authorize the source and credential before every request.
+// Scope must include trusted tenant, caller and authorization-relevant groups.
 type Inspector struct {
 	mu               sync.Mutex
 	fetch            FetchFunc
@@ -67,7 +75,7 @@ type Inspector struct {
 	uncachedSequence uint64
 }
 
-// NewInspector registers CP metadata storage and allows at most four concurrent acquisitions.
+// NewInspector registers the CP metadata cache.
 // A nil fetcher uses FetchRemote; a nonpositive TTL uses DefaultCacheTTL.
 func NewInspector(fetch FetchFunc, ttl time.Duration) *Inspector {
 	if fetch == nil {
@@ -95,15 +103,14 @@ func NewInspector(fetch FetchFunc, ttl time.Duration) *Inspector {
 	return inspector
 }
 
-// Inspect returns normalized metadata using the configured fetcher. The service
-// must authorize each request first and supply a scope derived from trusted identity.
+// Inspect fetches and parses chart metadata, or returns a cached NGC result.
+// The service must authorize the request and supply a trusted caller scope.
 func (i *Inspector) Inspect(ctx context.Context, selection Selection, scope, credential string) (*api.AiApplicationChartInspectionResponse, *api.Error) {
 	return i.InspectWithFetch(ctx, selection, scope, credential, i.fetch)
 }
 
-// InspectWithFetch runs a service-provided fetcher inside the acquisition limit,
-// allowing uploaded-chart reads to share the same bounds as remote downloads.
-// Authorization is the caller's responsibility, including on cache hits.
+// InspectWithFetch applies the same concurrency limit to a custom fetcher, such as upload reads.
+// Callers must authorize each request, including cache hits.
 func (i *Inspector) InspectWithFetch(ctx context.Context, selection Selection, scope, credential string, fetch FetchFunc) (*api.AiApplicationChartInspectionResponse, *api.Error) {
 	if err := ctx.Err(); err != nil {
 		return nil, inspectionError(err)
@@ -131,7 +138,7 @@ func (i *Inspector) InspectWithFetch(ctx context.Context, selection Selection, s
 	}
 	i.mu.Lock()
 	if !cacheable {
-		// Fresh sources must not reuse a cached result or another request's acquisition.
+		// Custom URLs and uploads must not share work between requests.
 		i.uncachedSequence++
 		key = fmt.Sprintf("uncached:%d", i.uncachedSequence)
 	}
@@ -141,13 +148,13 @@ func (i *Inspector) InspectWithFetch(ctx context.Context, selection Selection, s
 			i.mu.Unlock()
 			return nil, api.NewError(http.StatusServiceUnavailable, "chart_inspection_capacity: Chart inspection capacity reached; retry shortly.", nil)
 		}
-		// One disconnected waiter must not cancel work still needed by others.
-		// The shared deadline and releaseWaiter bound its lifetime instead.
+		// One caller leaving must not cancel work needed by others.
+		// Stop on timeout or when the last caller leaves.
 		workCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), downloadTimeout)
 		flight = &inspectionFlight{done: make(chan struct{}), cancel: cancel}
 		i.flights[key] = flight
 		i.active++
-		// Add the first waiter before starting work, so immediate completion can be cached.
+		// Register the caller before starting a worker that could finish immediately.
 		flight.waiters = 1
 		go i.run(workCtx, key, flight, selection, credential, fetch, cacheable)
 	} else {
@@ -170,8 +177,8 @@ func (i *Inspector) InspectWithFetch(ctx context.Context, selection Selection, s
 	}
 }
 
-// Stop abandoned work when its last waiter leaves. run retains the active slot
-// until the fetcher exits, so cancellation cannot bypass the concurrency limit.
+// Cancel work when the last caller leaves. Keep its slot until run exits
+// so a slow cancellation cannot bypass the concurrency limit.
 func (i *Inspector) releaseWaiter(key string, flight *inspectionFlight) {
 	i.mu.Lock()
 	defer i.mu.Unlock()
@@ -184,14 +191,13 @@ func (i *Inspector) releaseWaiter(key string, flight *inspectionFlight) {
 	}
 }
 
-// run completes an acquisition for its waiters and releases its capacity slot.
-// Only successful metadata still needed by a live waiter is eligible for caching.
+// run fetches, parses and delivers one result, then releases its worker slot.
+// Cache successful NGC results only while a caller still needs them.
 func (i *Inspector) run(ctx context.Context, key string, flight *inspectionFlight, selection Selection, credential string, fetch FetchFunc, cacheable bool) {
 	defer flight.cancel()
 	var result *api.AiApplicationChartInspectionResponse
 	if cacheable {
-		// Close the gap between a caller's cache miss and acquiring its flight:
-		// another flight may have populated the cache and completed meanwhile.
+		// Another worker may have filled the cache since the first lookup.
 		result = i.cachedMetadata(ctx, key)
 	}
 	fromCache := result != nil
@@ -217,8 +223,8 @@ func (i *Inspector) run(ctx context.Context, key string, flight *inspectionFligh
 			err = api.NewError(http.StatusInternalServerError, "chart inspection metadata could not be encoded", nil)
 		}
 	}
-	// Cache I/O must not hold the coordination lock. Losing the last waiter
-	// cancels ctx, including any pending write; cache failures do not fail inspection.
+	// Write outside the lock so other requests can proceed or cancel.
+	// The last caller leaving cancels this write; write failures still return the result.
 	if cacheable && !fromCache && err == nil && ctx.Err() == nil && i.cacheReady {
 		cacheCtx, cancel := context.WithTimeout(ctx, cacheAccessTimeout)
 		if cacheErr := cache.Set(cacheCtx, key, chartInspectionMetadata{Data: encoded}); cacheErr != nil {
@@ -236,8 +242,7 @@ func (i *Inspector) run(ctx context.Context, key string, flight *inspectionFligh
 	close(flight.done)
 }
 
-// Fetchers may return wrapped API errors or standard context errors. Normalize
-// them at the inspection boundary without exposing private callback diagnostics.
+// Preserve API errors, map cancellation to 408, and hide unexpected fetcher errors.
 func inspectionError(err error) *api.Error {
 	if err == nil {
 		return nil
@@ -260,8 +265,7 @@ func cacheableNGCRepository(selection Selection) bool {
 	return err == nil && u.Scheme == httpsScheme && ngcHost(u.Hostname())
 }
 
-// Decode a fresh object per caller so response mutation cannot alter the cache.
-// UseNumber preserves large integer defaults across the JSON round trip.
+// Give each caller its own result. UseNumber preserves large integer defaults.
 func decodeResult(data []byte) (*api.AiApplicationChartInspectionResponse, *api.Error) {
 	var result api.AiApplicationChartInspectionResponse
 	decoder := json.NewDecoder(bytes.NewReader(data))
@@ -272,8 +276,8 @@ func decodeResult(data []byte) (*api.AiApplicationChartInspectionResponse, *api.
 	return &result, nil
 }
 
-// Include caller scope and a salted credential fingerprint so different access
-// contexts cannot share metadata and raw key material is not retained in cache keys.
+// Keys isolate chart, caller scope, credentials and parser version.
+// HMAC keeps raw credentials out of keys; the salt is unique to this Inspector.
 func (i *Inspector) key(selection Selection, scope, credential string) string {
 	fingerprint := hmac.New(sha256.New, i.salt[:])
 	_, _ = fingerprint.Write([]byte(credential))
@@ -282,7 +286,7 @@ func (i *Inspector) key(selection Selection, scope, credential string) string {
 	return hex.EncodeToString(digest[:])
 }
 
-// Cache availability must not become a prerequisite for inspecting a chart.
+// Treat unavailable or invalid cache entries as misses.
 func (i *Inspector) cachedMetadata(ctx context.Context, key string) *api.AiApplicationChartInspectionResponse {
 	if !i.cacheReady {
 		return nil
