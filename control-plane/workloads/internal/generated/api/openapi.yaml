@@ -127051,16 +127051,11 @@ components:
       example: https://charts.bitnami.com/bitnami
       maxLength: 250
       type: string
-    AIApplicationChartName:
-      description: The name of the chart within the specified repository. This corresponds
-        to the chart’s directory name.
-      example: redis
-      maxLength: 250
+    ChartName:
+      description: Chart name declared in the archive Chart.yaml.
       type: string
-    AIApplicationChartVersion:
-      description: The specific Semantic Version (SemVer) of the chart to deploy.
-      example: 17.3.17
-      maxLength: 50
+    ChartVersion:
+      description: Chart version declared in the archive Chart.yaml.
       type: string
     AIApplicationChartUrl:
       description: "A direct HTTPS URL to a packaged Helm chart archive (.tgz). When\
@@ -127097,16 +127092,18 @@ components:
           maxLength: 250
           type: string
         chartName:
+          allOf:
+          - $ref: '#/components/schemas/ChartName'
           description: The name of the chart within the specified repository. This
             corresponds to the chart’s directory name.
           example: redis
           maxLength: 250
-          type: string
         chartVersion:
+          allOf:
+          - $ref: '#/components/schemas/ChartVersion'
           description: The specific Semantic Version (SemVer) of the chart to deploy.
           example: 17.3.17
           maxLength: 50
-          type: string
         chartURL:
           description: "A direct HTTPS URL to a packaged Helm chart archive (.tgz).\
             \ When provided, the chart is downloaded directly from this location instead\

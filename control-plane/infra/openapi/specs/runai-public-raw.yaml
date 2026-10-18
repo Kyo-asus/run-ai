@@ -56831,18 +56831,12 @@ components:
         and `version`.
       maxLength: 250
       example: 'https://charts.bitnami.com/bitnami'
-    AIApplicationChartName:
+    ChartName:
       type: string
-      description: >-
-        The name of the chart within the specified repository. This corresponds
-        to the chart’s directory name.
-      maxLength: 250
-      example: redis
-    AIApplicationChartVersion:
+      description: Chart name declared in the archive Chart.yaml.
+    ChartVersion:
       type: string
-      description: The specific Semantic Version (SemVer) of the chart to deploy.
-      maxLength: 50
-      example: 17.3.17
+      description: Chart version declared in the archive Chart.yaml.
     AIApplicationChartUrl:
       type: string
       description: >-
@@ -56878,9 +56872,19 @@ components:
         repo:
           $ref: '#/components/schemas/AIApplicationChartRepo'
         chartName:
-          $ref: '#/components/schemas/AIApplicationChartName'
+          allOf:
+            - $ref: '#/components/schemas/ChartName'
+          description: >-
+            The name of the chart within the specified repository. This
+            corresponds to the chart’s directory name.
+          maxLength: 250
+          example: redis
         chartVersion:
-          $ref: '#/components/schemas/AIApplicationChartVersion'
+          allOf:
+            - $ref: '#/components/schemas/ChartVersion'
+          description: The specific Semantic Version (SemVer) of the chart to deploy.
+          maxLength: 50
+          example: 17.3.17
         chartURL:
           $ref: '#/components/schemas/AIApplicationChartUrl'
         chartId:
@@ -57106,11 +57110,9 @@ components:
         - warnings
       properties:
         chartName:
-          type: string
-          description: Chart name declared in the archive Chart.yaml.
+          $ref: '#/components/schemas/ChartName'
         chartVersion:
-          type: string
-          description: Chart version declared in the archive Chart.yaml.
+          $ref: '#/components/schemas/ChartVersion'
         archiveSHA256:
           type: string
           description: >-

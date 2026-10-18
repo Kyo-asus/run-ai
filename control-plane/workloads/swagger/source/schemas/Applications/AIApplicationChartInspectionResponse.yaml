@@ -14,11 +14,9 @@ required:
 properties:
   # Return archive identity verbatim; submission name/version length limits do not apply.
   chartName:
-    type: string
-    description: Chart name declared in the archive Chart.yaml.
+    $ref: "../../../../../infra/openapi/docs/schemas/applications/ChartName.yaml"
   chartVersion:
-    type: string
-    description: Chart version declared in the archive Chart.yaml.
+    $ref: "../../../../../infra/openapi/docs/schemas/applications/ChartVersion.yaml"
   archiveSHA256:
     type: string
     description: Lowercase hexadecimal SHA-256 digest of the exact inspected archive bytes.
