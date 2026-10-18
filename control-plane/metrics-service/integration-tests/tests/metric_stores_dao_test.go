@@ -52,7 +52,7 @@ func TestMetricStoresDaoCreateDuplicateTenant(t *testing.T) {
 	created, err := metricStoresDao.Create(ctx, metricStore)
 	require.NoError(t, err)
 	require.NotNil(t, created)
-	require.NotNil(t, created.ID)
+	require.NotEqual(t, uuid.Nil, created.ID)
 
 	duplicate, err := metricStoresDao.Create(ctx, metricStore)
 	require.Error(t, err)
@@ -72,7 +72,7 @@ func TestMetricStoresDaoCreateSavesAllFields(t *testing.T) {
 
 	created, err := metricStoresDao.Create(ctx, metricStore)
 	require.NoError(t, err)
-	require.NotNil(t, created.ID)
+	require.NotEqual(t, uuid.Nil, created.ID)
 
 	got, err := metricStoresDao.GetByTenantId(ctx, metricStore.TenantId)
 	require.NoError(t, err)
@@ -98,6 +98,7 @@ func TestMetricStoresDaoGetAfterDeleteReturnsNil(t *testing.T) {
 
 	got, err := metricStoresDao.GetByTenantId(ctx, metricStore.TenantId)
 	require.NoError(t, err)
+	require.NotNil(t, got)
 	require.Equal(t, metricStore.TenantId, got.TenantId)
 
 	require.NoError(t, metricStoresDao.Delete(ctx, metricStore.TenantId))

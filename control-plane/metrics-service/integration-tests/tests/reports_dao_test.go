@@ -48,7 +48,11 @@ func createDaoReport(t *testing.T, reportsDao *dao.PostgresReportsDao, tenantId 
 
 	created, err := reportsDao.CreateReport(ctx, tenantId, input)
 	require.Nil(t, err)
-	t.Cleanup(func() { _ = reportsDao.DeleteReport(ctx, tenantId, created.ID.String()) })
+	t.Cleanup(func() {
+		if err := reportsDao.DeleteReport(ctx, tenantId, created.ID.String()); err != nil {
+			t.Errorf("failed to delete report %s: %v", created.ID, err)
+		}
+	})
 	return created
 }
 
