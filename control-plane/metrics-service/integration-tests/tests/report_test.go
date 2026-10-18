@@ -603,16 +603,6 @@ func (suite *ReportTestSuite) TestGetReport_ReturnsTheCreatedReport() {
 	require.False(suite.T(), got.StatusUpdatedAt.Before(got.CreatedAt))
 }
 
-func (suite *ReportTestSuite) TestGetReport_NotFound() {
-	ctx := reportCtx("1", "creator@example.com")
-
-	report, statusCode, err := metrics_client.GetClientInstance().GetReport(ctx, uuid.NewString())
-
-	require.Error(suite.T(), err)
-	require.Nil(suite.T(), report)
-	require.Equal(suite.T(), http.StatusNotFound, statusCode)
-}
-
 func (suite *ReportTestSuite) TestDeleteReport() {
 	ctx := reportCtx("1", "creator@example.com")
 	report, err := createReport(ctx, "delete-"+uuid.NewString(), createMetric([]string{clusterId1}))

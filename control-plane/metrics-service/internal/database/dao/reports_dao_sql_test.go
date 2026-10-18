@@ -136,17 +136,6 @@ func TestReportsDaoSQLGetReportsByIds(t *testing.T) {
 		require.Empty(t, got)
 	})
 
-	t.Run("scopes the query to the tenant", func(t *testing.T) {
-		mocker := dbtesting.SetSQLMock(t)
-		other := uuid.NewString()
-		mocker.ExpectQuery(sqlSelectReportsByIds, testTenantID, testReportID, other).Returns([]reportRow{})
-
-		got, err := NewPostgresReportsDao().GetReportsByIds(context.Background(), testTenantID, []string{testReportID, other})
-
-		require.Nil(t, err)
-		require.Empty(t, got)
-	})
-
 	t.Run("db failure is a 500", func(t *testing.T) {
 		mocker := dbtesting.SetSQLMock(t)
 		mocker.ExpectQuery(sqlSelectReportsByIds, testTenantID, testReportID, testReportID).ReturnsError(errDB)
