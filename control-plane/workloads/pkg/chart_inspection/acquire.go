@@ -19,6 +19,7 @@ import (
 	"time"
 
 	"github.com/dsx-ai-factory/run-ai/control-plane/workloads/internal/generated/pkg/api"
+	"github.com/dsx-ai-factory/run-ai/runai-cluster/common/utils/chartdownload"
 )
 
 const (
@@ -29,7 +30,6 @@ const (
 	httpScheme              = "http"
 	ociScheme               = "oci"
 	ngcDomain               = "ngc.nvidia.com"
-	ngcBasicAuthUsername    = "$oauthtoken"
 	maxChartIDBytes         = 128
 	maxChartIdentifierBytes = 512
 	maxSourceURLBytes       = 8192
@@ -272,10 +272,14 @@ func (f *remoteFetcher) download(ctx context.Context, client *http.Client, u *ur
 		return nil, api.NewValidationError("invalid_chart_url: Chart source URL is malformed.")
 	}
 	if apiKey != "" {
-		req.SetBasicAuth(ngcBasicAuthUsername, apiKey)
+		req.SetBasicAuth(chartdownload.NGCBasicAuthUsername, apiKey)
 	}
-	resp, err := client.Do(req)
+	resp, err := chartdownload.Fetch(client, req)
 	if err != nil {
+		var statusErr *chartdownload.StatusError
+		if errors.As(err, &statusErr) {
+			return nil, api.NewError(http.StatusServiceUnavailable, fmt.Sprintf("chart_download_failed: Chart source returned HTTP %d.", statusErr.StatusCode), nil)
+		}
 		if ctx.Err() != nil {
 			return nil, ctx.Err()
 		}
@@ -286,9 +290,6 @@ func (f *remoteFetcher) download(ctx context.Context, client *http.Client, u *ur
 		return nil, api.NewError(http.StatusServiceUnavailable, "chart_download_failed: Could not download the chart source (network, TLS, or redirect failure).", nil)
 	}
 	defer func() { _ = resp.Body.Close() }()
-	if resp.StatusCode != http.StatusOK {
-		return nil, api.NewError(http.StatusServiceUnavailable, fmt.Sprintf("chart_download_failed: Chart source returned HTTP %d.", resp.StatusCode), nil)
-	}
 	if resp.ContentLength > limit {
 		return nil, api.NewValidationError("chart_source_too_large: Chart source exceeds the inspection size limit.")
 	}

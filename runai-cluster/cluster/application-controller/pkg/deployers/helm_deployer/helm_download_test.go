@@ -6,6 +6,7 @@
 package helm_deployer
 
 import (
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -115,7 +116,29 @@ var _ = Describe("Downloader control-plane chart branch", func() {
 			_, err := d.Download()
 
 			Expect(err).To(HaveOccurred())
-			Expect(err.Error()).To(ContainSubstring("unexpected status"))
+			Expect(err).To(MatchError("download control-plane chart: unexpected status 403 Forbidden"))
+			Expect(d.tempDir).To(BeEmpty())
+		})
+
+		It("preserves the supplied client's redirect policy and error cause", func() {
+			server := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				http.Redirect(w, r, "/redirected-chart.tgz", http.StatusFound)
+			}))
+			defer server.Close()
+			client := server.Client()
+			redirectErr := errors.New("redirect rejected by caller")
+			client.CheckRedirect = func(*http.Request, []*http.Request) error { return redirectErr }
+			d := &Downloader{
+				ChartUrl:                 server.URL + "/chart.tgz",
+				RequiresControlPlaneAuth: true,
+				ChartAuthClient:          client,
+			}
+
+			_, err := d.Download()
+
+			Expect(errors.Is(err, redirectErr)).To(BeTrue())
+			Expect(err.Error()).To(HavePrefix("download control-plane chart: "))
+			Expect(d.tempDir).To(BeEmpty())
 		})
 	})
 })

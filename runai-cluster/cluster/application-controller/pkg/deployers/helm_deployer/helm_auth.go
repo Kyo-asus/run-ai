@@ -12,6 +12,7 @@ import (
 	"os"
 
 	"github.com/dsx-ai-factory/run-ai/runai-cluster/cluster/sdk/apis/run/v1alpha1"
+	"github.com/dsx-ai-factory/run-ai/runai-cluster/common/utils/chartdownload"
 	"github.com/rs/zerolog/log"
 	corev1 "k8s.io/api/core/v1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -26,7 +27,7 @@ const (
 	BasicAuthPassword = "password"
 	TokenAuth         = "token"
 	NgcAPIKey         = "NGC_API_KEY"
-	NgcBasicAuthUser  = "$oauthtoken"
+	NgcBasicAuthUser  = chartdownload.NGCBasicAuthUsername
 
 	PrefixTlsCert      = "tls-cert-"
 	PrefixTlsKey       = "tls-key-"
