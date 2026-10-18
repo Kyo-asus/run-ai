@@ -47,13 +47,7 @@ The following table shows which role performs each step:
 
 ## Prerequisites
 
-Before you start, make sure the following requirements are met:
-
-### NVIDIA Run:ai Projects
-
-An NVIDIA Run:ai [project](../../platform-management/aiinitiatives/organization/projects.md) for the team that runs agents, with the quota you want to limit its agents to. This tutorial uses the project `team-a` and the user `user@example.com`. Users do not need NVIDIA Run:ai accounts.
-
-Agents run in the project under its quota. In [Step 3](#step-3-creating-a-workspace-for-each-project), the platform administrator creates an OpenShell workspace that matches the project, and in [Step 4](#step-4-adding-users-to-workspaces) adds the team's users to it.
+Before you start, make sure the following requirements are met. They are grouped by the step that needs them.
 
 ### Client Tools
 
@@ -63,25 +57,33 @@ Agents run in the project under its quota. In [Step 3](#step-3-creating-a-worksp
 | Platform administrator | The `openshell` CLI, a web browser for sign-in, and `curl` to check the model endpoint | [Step 2](#step-2-signing-in-to-openshell) to [Step 5](#step-5-giving-agents-model-access) |
 | User | The `openshell` CLI (the version that matches the gateway) and a web browser for sign-in. Users work from their own machines through the CLI. | [Step 2](#step-2-signing-in-to-openshell) and [Step 6](#step-6-running-a-bug-fix-agent) to [Step 8](#step-8-using-other-agent-harnesses) |
 
-### Inference Endpoint with an Anthropic-Compatible API
+### For Step 1: Installing OpenShell
+
+Needed by the system administrator:
+
+- **A CNI that enforces `NetworkPolicy`.** OpenShell isolates agent pods with NetworkPolicies, and enforcement keeps every request going through the supervisor. On Amazon EKS, turn on network policy support in the Amazon VPC CNI (`enable-network-policy-controller: "true"` in the `amazon-vpc-cni` ConfigMap and `--enable-network-policy=true` on the `aws-eks-nodeagent` container).
+
+For the validated versions, refer to [Scope and Limitations](#scope-and-limitations).
+
+### For Step 2: Signing In to OpenShell
+
+In [Step 2](#step-2-signing-in-to-openshell), the system administrator, with the IdP administrator, registers an OIDC client for the OpenShell CLI in your identity provider so that users can sign in.
+
+- **An OIDC identity provider (IdP)** that your users already sign in to, such as Okta, Microsoft Entra ID or Keycloak. It must issue tokens with a `groups` claim, and you must be able to register an OIDC client in it for the OpenShell CLI.
+- **Two IdP groups.** OpenShell decides who is a user and who is a platform administrator from the `groups` claim of the user's token. Create, for example, `openshell-users` (everyone who runs agents) and `openshell-admins` (the platform team). The IdP administrator adds people to these groups.
+
+### For Steps 3 and 4: Creating Workspaces and Adding Users
+
+An NVIDIA Run:ai [project](../../platform-management/aiinitiatives/organization/projects.md) for the team that runs agents, with the quota you want to limit its agents to. This tutorial uses the project `team-a` and the user `user@example.com`. Users do not need NVIDIA Run:ai accounts.
+
+Agents run in the project under its quota. In [Step 3](#step-3-creating-a-workspace-for-each-project), the platform administrator creates an OpenShell workspace that matches the project, and in [Step 4](#step-4-adding-users-to-workspaces) adds the team's users to it.
+
+### For Step 5: Giving Agents Model Access
 
 In [Step 5](#step-5-giving-agents-model-access), the platform administrator connects the agents to the model. The agents use it in [Step 6](#step-6-running-a-bug-fix-agent) and [Step 8](#step-8-using-other-agent-harnesses).
 
 - **A model endpoint reachable from the cluster**, with its API key if the model runs outside NVIDIA Run:ai.
 - **An Anthropic-compatible API (`/v1/messages`) with tool calling.** Use your organization's model gateway or a vLLM server on NVIDIA Run:ai ([Step 5](#step-5-giving-agents-model-access)). The Claude Code example in [Step 6](#step-6-running-a-bug-fix-agent) calls this API. The model needs a context window of about 32,000 tokens and must be strong enough to use tools.
-
-### Identity Provider (IdP)
-
-In [Step 2](#step-2-signing-in-to-openshell), the system administrator, with the IdP administrator, registers an OIDC client for the OpenShell CLI in your identity provider so that users can sign in.
-
-- **An OIDC identity provider** that your users already sign in to, such as Okta, Microsoft Entra ID or Keycloak. It must issue tokens with a `groups` claim, and you must be able to register an OIDC client in it for the OpenShell CLI.
-- **Two IdP groups.** OpenShell decides who is a user and who is a platform administrator from the `groups` claim of the user's token. Create, for example, `openshell-users` (everyone who runs agents) and `openshell-admins` (the platform team). The IdP administrator adds people to these groups.
-
-### Network Policy Enforcement
-
-A CNI that enforces `NetworkPolicy`. OpenShell isolates agent pods with NetworkPolicies, and enforcement keeps every request going through the supervisor. On Amazon EKS, turn on network policy support in the Amazon VPC CNI (`enable-network-policy-controller: "true"` in the `amazon-vpc-cni` ConfigMap and `--enable-network-policy=true` on the `aws-eks-nodeagent` container).
-
-The system administrator installs OpenShell in [Step 1](#step-1-installing-openshell). For the validated versions, refer to [Scope and Limitations](#scope-and-limitations).
 
 ### Values to Replace
 
@@ -1090,7 +1092,7 @@ Known limitations:
   * OpenShell does not support adding an IdP group to a workspace, so the groups claim controls only the gateway-wide role (`openshell-users` or `openshell-admins`).
   * For large teams, automate the `member add` and `member remove` commands with your own tooling.
   * A user can run `openshell whoami` to report the subject to add.
-* **NVIDIA Run:ai's own identity clients are not used for sign-in.** The OpenShell CLI's browser login redirects to `http://127.0.0.1:<random port>`, which NVIDIA Run:ai's built-in clients do not allow, and their device flow is disabled. Register a dedicated OIDC client in your identity provider instead ([Step 2](#step-2-signing-in-to-openshell)). This also means the tutorial works the same on self-hosted and SaaS NVIDIA Run:ai.
+* **NVIDIA Run:ai's own identity clients are not used for sign-in.** The OpenShell CLI's browser login redirects to `http://127.0.0.1:<random port>`, which NVIDIA Run:ai's built-in clients do not allow, and their device flow is disabled. Register a dedicated OIDC client in your identity provider instead ([Step 2](#step-2-signing-in-to-openshell)).
 
 ### Models and Agents
 
