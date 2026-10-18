@@ -13,8 +13,6 @@ import (
 	"net/http"
 	"strings"
 
-	"github.com/dsx-ai-factory/run-ai/control-plane/workloads/internal/generated/pkg/api"
-
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 )
@@ -72,10 +70,8 @@ var _ = Describe("Chart archive parsing", func() {
 		})
 		_, err := ParseArchive(archive)
 		Expect(err).To(HaveOccurred())
-		apiErr, ok := err.(*api.Error)
-		Expect(ok).To(BeTrue())
-		Expect(apiErr.Code).To(BeNumerically("==", http.StatusBadRequest))
-		Expect(apiErr.Details).To(ContainSubstring("duplicate YAML key"))
+		Expect(err.Code).To(BeNumerically("==", http.StatusBadRequest))
+		Expect(err.Details).To(ContainSubstring("duplicate YAML key"))
 	})
 
 	It("Inspector Bounds Expanded YAML Aliases", func() {
@@ -98,8 +94,8 @@ var _ = Describe("Chart archive parsing", func() {
 						return fmt.Sprintf("expanded aliases were accepted: %#v", result)
 					})
 
-					encoded, err := json.Marshal(result)
-					Expect(err).NotTo(HaveOccurred())
+					encoded, marshalErr := json.Marshal(result)
+					Expect(marshalErr).NotTo(HaveOccurred())
 					Expect(len(encoded) > 4096).To(BeFalse(), func() string {
 						return fmt.Sprintf("expanded aliases leaked into response: %d bytes", len(encoded))
 					})
@@ -114,8 +110,8 @@ var _ = Describe("Chart archive parsing", func() {
 			return fmt.Sprintf("metadata = %#v", got)
 		})
 
-		encoded, err := json.Marshal(got)
-		Expect(err).NotTo(HaveOccurred())
+		encoded, marshalErr := json.Marshal(got)
+		Expect(marshalErr).NotTo(HaveOccurred())
 		Expect(bytes.Contains(encoded, []byte("defaultValues"))).To(BeFalse(), func() string {
 			return fmt.Sprintf("default values leaked: %s", encoded)
 		})

@@ -57,7 +57,7 @@ func (b *yamlBudget) charge(value string) error {
 // ParseArchive reads bounded root metadata from a single-root gzip/tar archive.
 // It returns errors for unsafe or malformed archives, but reports missing or
 // unusable question declarations in api.AiApplicationChartInspectionResponse so callers can distinguish them.
-func ParseArchive(data []byte) (*api.AiApplicationChartInspectionResponse, error) {
+func ParseArchive(data []byte) (*api.AiApplicationChartInspectionResponse, *api.Error) {
 	result, err := parseArchive(data)
 	if err != nil {
 		validationErr := api.NewValidationError("invalid Helm chart archive")

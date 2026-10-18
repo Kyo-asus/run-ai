@@ -17,7 +17,6 @@ import (
 	"strings"
 
 	"github.com/dsx-ai-factory/run-ai/runai-cluster/cluster/sdk/apis/run/v1alpha1"
-	"github.com/dsx-ai-factory/run-ai/runai-cluster/common/utils/chartdownload"
 	"github.com/rs/zerolog/log"
 	"helm.sh/helm/v3/pkg/action"
 	"helm.sh/helm/v3/pkg/cli"
@@ -151,11 +150,15 @@ func (d *Downloader) downloadControlPlaneChart() (_ string, err error) {
 		return "", fmt.Errorf("build control-plane chart request: %w", err)
 	}
 
-	resp, err := chartdownload.Fetch(d.ChartAuthClient, req)
+	resp, err := d.ChartAuthClient.Do(req)
 	if err != nil {
 		return "", fmt.Errorf("download control-plane chart: %w", err)
 	}
 	defer func() { _ = resp.Body.Close() }()
+
+	if resp.StatusCode != http.StatusOK {
+		return "", fmt.Errorf("download control-plane chart: unexpected status %s", resp.Status)
+	}
 
 	destDir, err := os.MkdirTemp("", ChartsDirName+"-")
 	if err != nil {

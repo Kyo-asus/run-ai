@@ -13,6 +13,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"sync"
@@ -45,7 +46,7 @@ type inspectionFlight struct {
 	cancel  context.CancelFunc
 	waiters int
 	data    []byte
-	err     error
+	err     *api.Error
 }
 
 // Inspector caches successful NGC repository metadata and bounds all expensive inspections.
@@ -94,16 +95,16 @@ func NewInspector(fetch FetchFunc, ttl time.Duration) *Inspector {
 
 // Inspect returns normalized metadata using the configured fetcher. The service
 // must authorize each request first and supply a scope derived from trusted identity.
-func (i *Inspector) Inspect(ctx context.Context, selection Selection, scope, credential string) (*api.AiApplicationChartInspectionResponse, error) {
+func (i *Inspector) Inspect(ctx context.Context, selection Selection, scope, credential string) (*api.AiApplicationChartInspectionResponse, *api.Error) {
 	return i.InspectWithFetch(ctx, selection, scope, credential, i.fetch)
 }
 
 // InspectWithFetch runs a service-provided fetcher inside the acquisition limit,
 // allowing uploaded-chart reads to share the same bounds as remote downloads.
 // Authorization is the caller's responsibility, including on cache hits.
-func (i *Inspector) InspectWithFetch(ctx context.Context, selection Selection, scope, credential string, fetch FetchFunc) (*api.AiApplicationChartInspectionResponse, error) {
+func (i *Inspector) InspectWithFetch(ctx context.Context, selection Selection, scope, credential string, fetch FetchFunc) (*api.AiApplicationChartInspectionResponse, *api.Error) {
 	if err := ctx.Err(); err != nil {
-		return nil, err
+		return nil, inspectionError(err)
 	}
 	if err := selection.validate(); err != nil {
 		return nil, err
@@ -155,11 +156,11 @@ func (i *Inspector) InspectWithFetch(ctx context.Context, selection Selection, s
 	select {
 	case <-ctx.Done():
 		i.releaseWaiter(key, flight)
-		return nil, ctx.Err()
+		return nil, inspectionError(ctx.Err())
 	case <-flight.done:
 		i.releaseWaiter(key, flight)
 		if err := ctx.Err(); err != nil {
-			return nil, err
+			return nil, inspectionError(err)
 		}
 		if flight.err != nil {
 			return nil, flight.err
@@ -186,13 +187,11 @@ func (i *Inspector) releaseWaiter(key string, flight *inspectionFlight) {
 // Only successful metadata still needed by a live waiter is eligible for caching.
 func (i *Inspector) run(ctx context.Context, key string, flight *inspectionFlight, selection Selection, credential string, fetch FetchFunc, cacheable bool) {
 	defer flight.cancel()
-	data, err := fetch(ctx, selection, credential)
+	data, fetchErr := fetch(ctx, selection, credential)
+	err := inspectionError(fetchErr)
 	var result *api.AiApplicationChartInspectionResponse
 	if err == nil {
 		result, err = ParseArchive(data)
-		if err != nil {
-			err = fmt.Errorf("inspect chart archive: %w", err)
-		}
 	}
 	if err == nil && result == nil {
 		err = api.NewError(http.StatusInternalServerError, "chart inspection returned no result", nil)
@@ -202,8 +201,9 @@ func (i *Inspector) run(ctx context.Context, key string, flight *inspectionFligh
 	}
 	var encoded []byte
 	if err == nil {
-		encoded, err = json.Marshal(result)
-		if err != nil {
+		var marshalErr error
+		encoded, marshalErr = json.Marshal(result)
+		if marshalErr != nil {
 			err = api.NewError(http.StatusInternalServerError, "chart inspection metadata could not be encoded", nil)
 		}
 	}
@@ -220,6 +220,22 @@ func (i *Inspector) run(ctx context.Context, key string, flight *inspectionFligh
 	close(flight.done)
 }
 
+// Fetchers may return wrapped API errors or standard context errors. Normalize
+// them at the inspection boundary without exposing private callback diagnostics.
+func inspectionError(err error) *api.Error {
+	if err == nil {
+		return nil
+	}
+	var apiErr *api.Error
+	if errors.As(err, &apiErr) {
+		return apiErr
+	}
+	if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+		return api.NewError(http.StatusRequestTimeout, "chart inspection request cancelled or expired", nil)
+	}
+	return api.NewError(http.StatusInternalServerError, "chart inspection failed unexpectedly", nil)
+}
+
 func cacheableNGCRepository(selection Selection) bool {
 	if selection.Repo == "" || selection.ChartName == "" || selection.ChartVersion == "" {
 		return false
@@ -230,7 +246,7 @@ func cacheableNGCRepository(selection Selection) bool {
 
 // Decode a fresh object per caller so response mutation cannot alter the cache.
 // UseNumber preserves large integer defaults across the JSON round trip.
-func decodeResult(data []byte) (*api.AiApplicationChartInspectionResponse, error) {
+func decodeResult(data []byte) (*api.AiApplicationChartInspectionResponse, *api.Error) {
 	var result api.AiApplicationChartInspectionResponse
 	decoder := json.NewDecoder(bytes.NewReader(data))
 	decoder.UseNumber()

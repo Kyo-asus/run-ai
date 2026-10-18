@@ -8,7 +8,6 @@ package services
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"net/http"
 	"strings"
@@ -102,9 +101,9 @@ func (s *applicationChartInspector) inspect(ctx context.Context, request api.AiA
 			return NewErrorResponse(e), nil
 		}
 	}
-	scope, err := chartInspectionScope(ctx, request.Auth)
-	if err != nil {
-		return NewErrorResponse(api.NewError(http.StatusInternalServerError, "failed to resolve chart inspection caller scope", nil)), nil
+	scope, e := chartInspectionScope(ctx, request.Auth)
+	if e != nil {
+		return NewErrorResponse(e), nil
 	}
 
 	var result *api.AiApplicationChartInspectionResponse
@@ -116,7 +115,7 @@ func (s *applicationChartInspector) inspect(ctx context.Context, request api.AiA
 		if parseErr != nil {
 			return NewErrorResponse(api.NewValidationError("chartId must be a valid uuid")), nil
 		}
-		result, err = s.inspector.InspectWithFetch(ctx, selection, scope, "", func(fetchCtx context.Context, _ chartinspection.Selection, _ string) ([]byte, error) {
+		result, e = s.inspector.InspectWithFetch(ctx, selection, scope, "", func(fetchCtx context.Context, _ chartinspection.Selection, _ string) ([]byte, error) {
 			data, loadErr := s.loadUpload(fetchCtx, id, fmt.Sprint(tenant))
 			if loadErr != nil {
 				return nil, loadErr
@@ -124,17 +123,10 @@ func (s *applicationChartInspector) inspect(ctx context.Context, request api.AiA
 			return data, nil
 		})
 	} else {
-		result, err = s.inspector.Inspect(ctx, selection, scope, key)
+		result, e = s.inspector.Inspect(ctx, selection, scope, key)
 	}
-	if err != nil {
-		var apiErr *api.Error
-		if errors.As(err, &apiErr) {
-			return NewErrorResponse(apiErr), nil
-		}
-		if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
-			return NewErrorResponse(api.NewError(http.StatusRequestTimeout, "chart inspection request cancelled or expired", nil)), nil
-		}
-		return NewErrorResponse(api.NewError(http.StatusInternalServerError, "chart inspection failed unexpectedly", nil)), nil
+	if e != nil {
+		return NewErrorResponse(e), nil
 	}
 	return api.Response(http.StatusOK, result), nil
 }
@@ -168,7 +160,7 @@ func chartInspectionSelection(ref api.AiApplicationSpecChartRef) (chartinspectio
 	return selection, nil
 }
 
-func chartInspectionScope(ctx context.Context, auth api.AiApplicationAuth) (string, error) {
+func chartInspectionScope(ctx context.Context, auth api.AiApplicationAuth) (string, *api.Error) {
 	identity := make(map[string]any)
 	for _, field := range []runaictx.ContextField{
 		runaictx.CfTenantId, runaictx.CfSubjectID, runaictx.CfSubjectType, runaictx.CfClientId, runaictx.CfClientType, runaictx.CfGroups, runaictx.CfSupplementalGroups,
@@ -178,5 +170,8 @@ func chartInspectionScope(ctx context.Context, auth api.AiApplicationAuth) (stri
 	identity["assetId"] = auth.AssetId
 	identity["userCredential"] = auth.UserCredential != nil && *auth.UserCredential
 	encoded, err := json.Marshal(identity)
-	return string(encoded), err
+	if err != nil {
+		return "", api.NewError(http.StatusInternalServerError, "failed to resolve chart inspection caller scope", nil)
+	}
+	return string(encoded), nil
 }

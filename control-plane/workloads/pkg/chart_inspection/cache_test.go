@@ -64,6 +64,46 @@ func cacheChartMetadata(name, version string) []byte {
 }
 
 var _ = Describe("Inspection cache and admission", func() {
+	It("returns API errors while preserving status and hiding private callback diagnostics", func() {
+		public := api.NewError(http.StatusForbidden, "chart access denied", nil)
+		for _, tc := range []struct {
+			name    string
+			err     error
+			code    int
+			message string
+		}{
+			{"wrapped API error", fmt.Errorf("private callback: %w", public), http.StatusForbidden, public.Message},
+			{"cancelled fetch", context.Canceled, http.StatusRequestTimeout, "chart inspection request cancelled or expired"},
+			{"expired fetch", context.DeadlineExceeded, http.StatusRequestTimeout, "chart inspection request cancelled or expired"},
+			{"unexpected failure", errors.New("private callback diagnostic"), http.StatusInternalServerError, "chart inspection failed unexpectedly"},
+		} {
+			By(tc.name)
+			inspector := NewInspector(func(context.Context, Selection, string) ([]byte, error) {
+				return nil, tc.err
+			}, 0)
+			result, err := inspector.Inspect(context.Background(), ngcCacheSelection(), "tenant", "")
+			Expect(result).To(BeNil())
+			Expect(err).To(HaveOccurred())
+			Expect(err.Code).To(BeNumerically("==", tc.code))
+			Expect(err.Message).To(Equal(tc.message))
+			Expect(err.Details).To(BeEmpty())
+		}
+	})
+
+	It("returns a timeout API error before fetching an already cancelled request", func() {
+		ctx, cancel := context.WithCancel(context.Background())
+		cancel()
+		called := false
+		inspector := NewInspector(func(context.Context, Selection, string) ([]byte, error) {
+			called = true
+			return nil, nil
+		}, 0)
+		result, err := inspector.Inspect(ctx, ngcCacheSelection(), "tenant", "")
+		Expect(result).To(BeNil())
+		Expect(err).To(HaveOccurred())
+		Expect(err.Code).To(BeNumerically("==", http.StatusRequestTimeout))
+		Expect(called).To(BeFalse())
+	})
 
 	It("Inspector Only Reuses NGC Repository Results", func() {
 		first := cacheChart()
@@ -142,7 +182,7 @@ var _ = Describe("Inspection cache and admission", func() {
 		var releaseOnce sync.Once
 		unblock := func() { releaseOnce.Do(func() { close(release) }) }
 		DeferCleanup(unblock)
-		done := make(chan error, 2)
+		done := make(chan *api.Error, 2)
 		inspector := NewInspector(func(context.Context, Selection, string) ([]byte, error) {
 			started <- struct{}{}
 			<-release
@@ -235,8 +275,8 @@ var _ = Describe("Inspection cache and admission", func() {
 			result, err := inspector.Inspect(context.Background(), ngcCacheSelection(), "tenant", "")
 			Expect(err).NotTo(HaveOccurred())
 
-			encoded, err := json.Marshal(result.Questions[0]["default"])
-			Expect(err).NotTo(HaveOccurred())
+			encoded, marshalErr := json.Marshal(result.Questions[0]["default"])
+			Expect(marshalErr).NotTo(HaveOccurred())
 			Expect(string(encoded)).To(Equal("9007199254740993"), func() string {
 				return fmt.Sprintf("default changed during inspection/cache: %s", encoded)
 			})
@@ -294,19 +334,19 @@ var _ = Describe("Inspection cache and admission", func() {
 		}, time.Minute)
 		selection := ngcCacheSelection()
 		ctx, cancel := context.WithCancel(context.Background())
-		firstDone := make(chan error, 1)
+		firstDone := make(chan *api.Error, 1)
 		go func() { _, err := inspector.Inspect(ctx, selection, "tenant", "key"); firstDone <- err }()
 		<-started
 		const others = 7
 		var wg sync.WaitGroup
-		errs := make(chan error, others)
+		errs := make(chan *api.Error, others)
 		for n := 0; n < others; n++ {
 			wg.Add(1)
 			go func() {
 				defer wg.Done()
 				r, err := inspector.Inspect(context.Background(), selection, "tenant", "key")
 				if err == nil && r.ChartName != fixtureChartName {
-					err = errors.New("wrong result")
+					err = api.NewError(http.StatusInternalServerError, "wrong result", nil)
 				}
 				errs <- err
 			}()
@@ -331,9 +371,8 @@ var _ = Describe("Inspection cache and admission", func() {
 		cancel()
 		{
 			err := <-firstDone
-			Expect(errors.Is(err, context.Canceled)).To(BeTrue(), func() string {
-				return fmt.Sprintf("leader cancellation lost %v", err)
-			})
+			Expect(err).To(HaveOccurred())
+			Expect(err.Code).To(BeNumerically("==", http.StatusRequestTimeout))
 		}
 
 		close(release)
@@ -362,15 +401,14 @@ var _ = Describe("Inspection cache and admission", func() {
 		}, time.Minute)
 		selection := ngcCacheSelection()
 		ctx, cancel := context.WithCancel(context.Background())
-		done := make(chan error, 1)
+		done := make(chan *api.Error, 1)
 		go func() { _, err := inspector.Inspect(ctx, selection, "tenant", ""); done <- err }()
 		<-started
 		cancel()
 		{
 			err := <-done
-			Expect(errors.Is(err, context.Canceled)).To(BeTrue(), func() string {
-				return fmt.Sprint(err)
-			})
+			Expect(err).To(HaveOccurred())
+			Expect(err.Code).To(BeNumerically("==", http.StatusRequestTimeout))
 		}
 
 		select {
