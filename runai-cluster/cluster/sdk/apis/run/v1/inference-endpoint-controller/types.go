@@ -48,8 +48,9 @@ type Resources v1.ResourceRequirements
 
 func (c *InferenceEndpointController) SetDefaultsWhereNeeded(globalRegistry string, globalReplicaCount *int32) {
 	if c.Enabled == nil {
-		// TODO(viper): Revisit enabled-by-default before merging; Gateway API and GIE are prerequisites.
-		c.Enabled = ptr.To(true)
+		// Opt-in: Gateway API and GIE CRDs are prerequisites the chart does not install,
+		// and the controller cannot start its watches without them.
+		c.Enabled = ptr.To(false)
 	}
 	if c.Image == nil {
 		c.Image = &common.Image{}

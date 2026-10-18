@@ -98,8 +98,8 @@ if [ "$MODE" = "phase1" ]; then
   step 9 "Canary: 40 requests with model=llama3, count the rewritten targetModel in EPP logs"
   for i in $(seq 1 40); do chat >/dev/null; done
   sleep 2
-  echo "  incoming → target model, last 40 'Request handled' lines from the EPP:"
-  split=$(kubectl logs -n "$NS" deploy/llama3-epp | grep '"msg":"Request handled"' | tail -40 | grep -oE '"targetModel":"[^"]+"' | sort | uniq -c)
+  echo "  resolved target model, last 40 request-body responses logged by the EPP (v1.5.0 log schema):"
+  split=$(kubectl logs -n "$NS" deploy/llama3-epp | grep '"msg":"EPP sent request body response(s) to proxy"' | tail -40 | grep -oE '"targetModelName":"[^"]+"' | sort | uniq -c)
   echo "$split" | sed 's/^/  /'
   echo "  expect roughly 36 × llama3 and 4 × llama3-v2 (90/10, ratios only)"
   echo "$split" | grep -q 'llama3-v2' && ok "some requests were rewritten to llama3-v2" || bad "no request rewritten to llama3-v2"

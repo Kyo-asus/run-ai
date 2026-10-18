@@ -129,7 +129,7 @@ func (r *InferenceEndpointReconciler) Reconcile(ctx context.Context, req ctrl.Re
 			if statusErr := r.setNotReady(ctx, endpoint, inferencev1alpha1.ReasonApplyFailed, msg); statusErr != nil {
 				log.Error(statusErr, "Failed to record apply failure in status")
 			}
-			return ctrl.Result{}, fmt.Errorf("%s", msg)
+			return ctrl.Result{}, fmt.Errorf("apply %s %s: %w", child.GetKind(), child.GetName(), err)
 		}
 	}
 	log.V(1).Info("Applied child objects", "count", len(children))
@@ -272,9 +272,20 @@ func eppImageFor(epp inferencev1alpha1.EppSpec) (string, error) {
 func (r *InferenceEndpointReconciler) deleteRewrite(ctx context.Context, endpoint *inferencev1alpha1.InferenceEndpoint) error {
 	rewrite := &unstructured.Unstructured{}
 	rewrite.SetGroupVersionKind(rewriteGVK)
-	rewrite.SetName(endpoint.Name + "-rewrite")
-	rewrite.SetNamespace(endpoint.Namespace)
-	if err := r.Delete(ctx, rewrite); err != nil && !apierrors.IsNotFound(err) {
+	key := types.NamespacedName{Name: endpoint.Name + "-rewrite", Namespace: endpoint.Namespace}
+	if err := r.Get(ctx, key, rewrite); err != nil {
+		if apierrors.IsNotFound(err) {
+			return nil
+		}
+		return fmt.Errorf("get stale InferenceModelRewrite: %w", err)
+	}
+	// Only our own child may be removed: the name is predictable and another
+	// tool in the namespace could own an object with the same name.
+	if !metav1.IsControlledBy(rewrite, endpoint) {
+		return nil
+	}
+	uid := rewrite.GetUID()
+	if err := r.Delete(ctx, rewrite, client.Preconditions{UID: &uid}); err != nil && !apierrors.IsNotFound(err) {
 		return fmt.Errorf("delete stale InferenceModelRewrite: %w", err)
 	}
 	return nil

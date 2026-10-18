@@ -246,7 +246,7 @@ for i in $(seq 1 40); do
   curl -s -m 30 http://localhost:18089/v1/chat/completions -H "Host: ${HOSTNAME_HEADER:-llama3.test}" -H 'Content-Type: application/json' \
     -d '{"model":"llama3","messages":[{"role":"user","content":"Hello!"}],"max_tokens":8}' >/dev/null & req_pids+=($!)
 done
-wait "${req_pids[@]}"; sleep 3; kill "$pf_pid" 2>/dev/null
+wait "${req_pids[@]}" || true; sleep 3; kill "$pf_pid" 2>/dev/null || true
 rewritten=$(kubectl logs -n "$NS" deploy/"${EP}-epp" --since-time="$since" 2>/dev/null | grep -c '"targetModelName":"llama3-v2"' || true)
 (( rewritten > 0 )) && ok "$rewritten of the last requests were rewritten to llama3-v2 by the EPP" || bad "no request was rewritten to llama3-v2"
 gen_after=$(kubectl get deployment "${EP}-epp" -n "$NS" -o jsonpath='{.metadata.generation}')

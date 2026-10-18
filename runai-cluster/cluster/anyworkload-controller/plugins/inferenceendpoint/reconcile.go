@@ -90,6 +90,11 @@ func (p *Plugin) reconcile(ctx context.Context, runner *dromos.WorkloadRunner, c
 		return fmt.Errorf("own InferenceEndpoint: %w", err)
 	}
 	if err := c.Create(ctx, desired, client.FieldValidation(metav1.FieldValidationStrict)); err != nil {
+		// The Get above reads the informer cache, which can lag a Create that already
+		// succeeded. The Owns watch delivers the object and the next reconcile converges.
+		if apierrors.IsAlreadyExists(err) {
+			return nil
+		}
 		return fmt.Errorf("create InferenceEndpoint: %w", err)
 	}
 	return nil

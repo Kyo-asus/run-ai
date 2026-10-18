@@ -9,9 +9,9 @@ image, replicas, resources, affinity, logging, and metrics.
 
 ## Installation
 
-The controller is enabled by default for this integration. **Before merging,
-revisit that default** in the SDK configuration: clusters without the prerequisites
-will report the operand as not ready.
+The controller is opt-in (`enabled: false` by default): Gateway API and GIE CRDs are
+prerequisites the chart does not install, and a cluster without them would report the
+operand as not ready.
 
 Install Gateway API v1 CRDs, InferencePool v1, and the GIE v1alpha2
 InferenceModelRewrite and InferenceObjective CRDs on the workload cluster.

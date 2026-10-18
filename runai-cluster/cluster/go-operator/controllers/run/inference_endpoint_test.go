@@ -18,9 +18,12 @@ import (
 )
 
 var _ = Describe("Inference endpoint registration", func() {
-	It("runs on the workload cluster and honors explicit disablement", func() {
+	It("is opt-in, runs on the workload cluster once enabled, and honors explicit disablement", func() {
 		config := &runv1.RunaiConfig{}
 		config.SetDefaultsWhereNeeded()
+		Expect(config.Spec.InferenceEndpointController.Enabled).To(HaveValue(BeFalse()))
+		// Gateway API and GIE CRDs are prerequisites the chart does not install.
+		config.Spec.InferenceEndpointController.Enabled = ptr.To(true)
 		client := fake.NewClientBuilder().Build()
 		hybrid := kc.New(client, client, nil)
 		managed := run.NewManagedOperands(context.Background(), hybrid, hybrid, config)
