@@ -133,7 +133,6 @@ helm upgrade -i runai-cluster ./charts/runai-cluster-<VERSION>.tgz \
     --set controlPlane.bootstrapToken=... \
     --set cluster.uid=... \
     --set cluster.url=... --create-namespace \
-    --set global.customCA.enabled=true \
     --set clusterConfig.global.ingress.ingressClass=haproxy \
     -f <VALUES_DIR>/cluster-airgap-values.yaml
 ```
@@ -238,7 +237,6 @@ In the next section, the NVIDIA Run:ai cluster installation steps will be presen
         --set controlPlane.bootstrapToken=... \
         --set cluster.uid=... \
         --set cluster.url=... --create-namespace \
-        --set global.customCA.enabled=true \
         -f <VALUES_DIR>/cluster-airgap-values.yaml
     ```
 

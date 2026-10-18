@@ -148,7 +148,6 @@ Use the Helm command for the release type you are installing and update the valu
 ```bash
 helm upgrade -i runai-backend ./charts/control-plane-<VERSION>.tgz \
     --set global.domain=<DOMAIN> \
-    --set global.customCA.enabled=true \
     --set global.ingress.ingressClass=haproxy \
     --set tenantsManager.config.adminUsername=<ADMIN_EMAIL> \
     --set tenantsManager.config.adminPassword="<ADMIN_PASSWORD>" \
@@ -162,7 +161,6 @@ In addition to the values above, add `--set supportEntitled=true` to the `helm u
 ```bash
 helm upgrade -i runai-backend ./charts/control-plane-<VERSION>.tgz \
     --set global.domain=<DOMAIN> \
-    --set global.customCA.enabled=true \
     --set global.ingress.ingressClass=haproxy \
     --set tenantsManager.config.adminUsername=<ADMIN_EMAIL> \
     --set tenantsManager.config.adminPassword="<ADMIN_PASSWORD>" \
@@ -175,7 +173,6 @@ For example:
 ```bash
 helm upgrade -i runai-backend ./charts/control-plane-<VERSION>.tgz \
     --set global.domain=runai.mycorp.local \
-    --set global.customCA.enabled=true \
     --set global.ingress.ingressClass=haproxy \
     --set tenantsManager.config.adminUsername=email@local.com \
     --set tenantsManager.config.adminPassword="myPassw0rd\!" \
@@ -311,7 +308,6 @@ Use the Helm command for the release type you are installing and update the valu
 helm upgrade -i runai-backend ./charts/control-plane-<VERSION>.tgz -n runai-backend \
     --set global.domain=runai.apps.<OPENSHIFT-CLUSTER-DOMAIN> \
     --set global.config.kubernetesDistribution=openshift \
-    --set global.customCA.enabled=true \
     --set tenantsManager.config.adminUsername=<ADMIN_EMAIL> \
     --set tenantsManager.config.adminPassword="<ADMIN_PASSWORD>" \
     -f <VALUES_DIR>/control-plane-airgap-values.yaml
@@ -325,7 +321,6 @@ In addition to the values above, add `--set supportEntitled=true` to the `helm u
 helm upgrade -i runai-backend ./charts/control-plane-<VERSION>.tgz -n runai-backend \
     --set global.domain=runai.apps.<OPENSHIFT-CLUSTER-DOMAIN> \
     --set global.config.kubernetesDistribution=openshift \
-    --set global.customCA.enabled=true \
     --set tenantsManager.config.adminUsername=<ADMIN_EMAIL> \
     --set tenantsManager.config.adminPassword="<ADMIN_PASSWORD>" \
     --set supportEntitled=true \
@@ -338,7 +333,6 @@ For example:
 helm upgrade -i runai-backend ./charts/control-plane-<VERSION>.tgz -n runai-backend \
     --set global.domain=runai.apps.mycorp.local \
     --set global.config.kubernetesDistribution=openshift \
-    --set global.customCA.enabled=true \
     --set tenantsManager.config.adminUsername=email@local.com \
     --set tenantsManager.config.adminPassword="myPassw0rd\!" \
     --set supportEntitled=true \
