@@ -6,14 +6,15 @@ package chart_inspection
 import (
 	"encoding/json"
 	"fmt"
+	"github.com/dsx-ai-factory/run-ai/control-plane/workloads/internal/generated/pkg/api"
 
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 )
 
 var _ = Describe("Inspection response diagnostics", func() {
-	It("Warning JSON Always Includes Path", func() {
-		encoded, err := json.Marshal(Warning{Code: "EXAMPLE", Message: "Example"})
+	It("api.AiApplicationChartInspectionWarning JSON Always Includes Path", func() {
+		encoded, err := json.Marshal(api.AiApplicationChartInspectionWarning{Code: "EXAMPLE", Message: "Example"})
 		Expect(err).NotTo(HaveOccurred())
 
 		var got map[string]any

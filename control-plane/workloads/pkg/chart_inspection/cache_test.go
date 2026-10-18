@@ -13,6 +13,8 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/dsx-ai-factory/run-ai/control-plane/workloads/internal/generated/pkg/api"
+	"net/http"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -473,8 +475,8 @@ var _ = Describe("Inspection cache and admission", func() {
 		selection := Selection{Repo: "https://helm.ngc.nvidia.com/nvidia", ChartName: fixtureChartName, ChartVersion: "2"}
 		for n := 0; n < 2; n++ {
 			_, err := inspector.Inspect(context.Background(), selection, "tenant", "")
-			var typed *Error
-			Expect(!errors.As(err, &typed) || typed.StatusCode != 422 || typed.Code != "chart_identity_mismatch").To(BeFalse(), func() string {
+			var typed *api.Error
+			Expect(!errors.As(err, &typed) || typed.Code != http.StatusBadRequest || !strings.HasPrefix(typed.Message, "chart_identity_mismatch:")).To(BeFalse(), func() string {
 				return fmt.Sprintf("wrong mismatch error: %v", err)
 			})
 		}
@@ -510,7 +512,7 @@ var _ = Describe("Inspection cache and admission", func() {
 		})
 		Expect(len(inspector.entries)).To(Equal(0), "upload populated cache")
 	})
-	It("Inspector Serves NGC Result Exceeding Cache Budgets", func() {
+	It("Inspector Serves NGC api.AiApplicationChartInspectionResponse Exceeding Cache Budgets", func() {
 		archive := cacheChart()
 		for _, budget := range []string{"record", "total"} {
 			{

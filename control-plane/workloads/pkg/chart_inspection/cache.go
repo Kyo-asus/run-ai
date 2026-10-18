@@ -13,13 +13,22 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
-	"errors"
 	"fmt"
+	"net/http"
 	"sync"
 	"time"
+
+	"github.com/dsx-ai-factory/run-ai/control-plane/workloads/internal/generated/pkg/api"
 )
 
-const inspectionParserVersion = "questions-v2"
+const (
+	inspectionParserVersion  = "questions-v2"
+	cacheSaltBytes           = sha256.Size
+	defaultMaxCacheBytes     = 20 << 20
+	defaultMaxRecordBytes    = 4 << 20
+	defaultMaxCacheEntries   = 128
+	maxConcurrentInspections = 4
+)
 
 // DefaultCacheTTL applies only to exact-version HTTPS NGC repository selections.
 const DefaultCacheTTL = 10 * time.Minute
@@ -47,7 +56,7 @@ type Inspector struct {
 	fetch            FetchFunc
 	ttl              time.Duration
 	now              func() time.Time
-	salt             [32]byte
+	salt             [cacheSaltBytes]byte
 	entries          map[string]cacheEntry
 	flights          map[string]*inspectionFlight
 	active           int
@@ -67,7 +76,16 @@ func NewInspector(fetch FetchFunc, ttl time.Duration) *Inspector {
 	if ttl <= 0 {
 		ttl = DefaultCacheTTL
 	}
-	inspector := &Inspector{fetch: fetch, ttl: ttl, now: time.Now, entries: make(map[string]cacheEntry), flights: make(map[string]*inspectionFlight), maxCacheBytes: 20 << 20, maxRecordBytes: 4 << 20, maxEntries: 128}
+	inspector := &Inspector{
+		fetch:          fetch,
+		ttl:            ttl,
+		now:            time.Now,
+		entries:        make(map[string]cacheEntry),
+		flights:        make(map[string]*inspectionFlight),
+		maxCacheBytes:  defaultMaxCacheBytes,
+		maxRecordBytes: defaultMaxRecordBytes,
+		maxEntries:     defaultMaxCacheEntries,
+	}
 	if _, err := rand.Read(inspector.salt[:]); err != nil {
 		panic(fmt.Sprintf("initialize chart inspection cache: %v", err))
 	}
@@ -76,14 +94,14 @@ func NewInspector(fetch FetchFunc, ttl time.Duration) *Inspector {
 
 // Inspect returns normalized metadata using the configured fetcher. The service
 // must authorize each request first and supply a scope derived from trusted identity.
-func (i *Inspector) Inspect(ctx context.Context, selection Selection, scope, credential string) (*Result, error) {
+func (i *Inspector) Inspect(ctx context.Context, selection Selection, scope, credential string) (*api.AiApplicationChartInspectionResponse, error) {
 	return i.InspectWithFetch(ctx, selection, scope, credential, i.fetch)
 }
 
 // InspectWithFetch runs a service-provided fetcher inside the acquisition limit,
 // allowing uploaded-chart reads to share the same bounds as remote downloads.
 // Authorization is the caller's responsibility, including on cache hits.
-func (i *Inspector) InspectWithFetch(ctx context.Context, selection Selection, scope, credential string, fetch FetchFunc) (*Result, error) {
+func (i *Inspector) InspectWithFetch(ctx context.Context, selection Selection, scope, credential string, fetch FetchFunc) (*api.AiApplicationChartInspectionResponse, error) {
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
@@ -91,10 +109,10 @@ func (i *Inspector) InspectWithFetch(ctx context.Context, selection Selection, s
 		return nil, err
 	}
 	if fetch == nil {
-		return nil, acquisitionError(500, "chart_inspection_failed", "Chart inspection source is not configured.")
+		return nil, api.NewError(http.StatusInternalServerError, "chart_inspection_failed: Chart inspection source is not configured.", nil)
 	}
 	if scope == "" {
-		return nil, acquisitionError(400, "invalid_inspection_scope", "Chart inspection requires an authenticated caller scope.")
+		return nil, api.NewValidationError("invalid_inspection_scope: Chart inspection requires an authenticated caller scope.")
 	}
 	cacheable := cacheableNGCRepository(selection)
 	key := ""
@@ -117,9 +135,9 @@ func (i *Inspector) InspectWithFetch(ctx context.Context, selection Selection, s
 	}
 	flight := i.flights[key]
 	if flight == nil {
-		if i.active >= 4 {
+		if i.active >= maxConcurrentInspections {
 			i.mu.Unlock()
-			return nil, acquisitionError(503, "chart_inspection_capacity", "Chart inspection capacity reached; retry shortly.")
+			return nil, api.NewError(http.StatusServiceUnavailable, "chart_inspection_capacity: Chart inspection capacity reached; retry shortly.", nil)
 		}
 		// One disconnected waiter must not cancel work still needed by others.
 		// The shared deadline and releaseWaiter bound its lifetime instead.
@@ -169,7 +187,7 @@ func (i *Inspector) releaseWaiter(key string, flight *inspectionFlight) {
 func (i *Inspector) run(ctx context.Context, key string, flight *inspectionFlight, selection Selection, credential string, fetch FetchFunc, cacheable bool) {
 	defer flight.cancel()
 	data, err := fetch(ctx, selection, credential)
-	var result *Result
+	var result *api.AiApplicationChartInspectionResponse
 	if err == nil {
 		result, err = ParseArchive(data)
 		if err != nil {
@@ -177,19 +195,20 @@ func (i *Inspector) run(ctx context.Context, key string, flight *inspectionFligh
 		}
 	}
 	if err == nil && result == nil {
-		err = errors.New("chart inspection returned no result")
+		err = api.NewError(http.StatusInternalServerError, "chart inspection returned no result", nil)
 	}
 	if err == nil && selection.Repo != "" && (result.ChartName != selection.ChartName || result.ChartVersion != selection.ChartVersion) {
-		err = acquisitionError(422, "chart_identity_mismatch", "Downloaded chart identity does not match the selected name and version.")
+		err = api.NewValidationError("chart_identity_mismatch: Downloaded chart identity does not match the selected name and version.")
 	}
 	var encoded []byte
 	if err == nil {
 		encoded, err = json.Marshal(result)
 		if err != nil {
-			err = errors.New("chart inspection metadata could not be encoded")
+			err = api.NewError(http.StatusInternalServerError, "chart inspection metadata could not be encoded", nil)
 		}
 	}
 	i.mu.Lock()
+	defer i.mu.Unlock()
 	flight.data, flight.err = encoded, err
 	if cacheable && err == nil && flight.waiters > 0 && ctx.Err() == nil {
 		i.put(key, encoded)
@@ -199,7 +218,6 @@ func (i *Inspector) run(ctx context.Context, key string, flight *inspectionFligh
 	}
 	i.active--
 	close(flight.done)
-	i.mu.Unlock()
 }
 
 func cacheableNGCRepository(selection Selection) bool {
@@ -212,12 +230,12 @@ func cacheableNGCRepository(selection Selection) bool {
 
 // Decode a fresh object per caller so response mutation cannot alter the cache.
 // UseNumber preserves large integer defaults across the JSON round trip.
-func decodeResult(data []byte) (*Result, error) {
-	var result Result
+func decodeResult(data []byte) (*api.AiApplicationChartInspectionResponse, error) {
+	var result api.AiApplicationChartInspectionResponse
 	decoder := json.NewDecoder(bytes.NewReader(data))
 	decoder.UseNumber()
 	if err := decoder.Decode(&result); err != nil {
-		return nil, fmt.Errorf("decode chart inspection metadata: %w", err)
+		return nil, api.NewError(http.StatusInternalServerError, "could not decode cached chart inspection metadata", nil)
 	}
 	return &result, nil
 }

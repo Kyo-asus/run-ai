@@ -14,6 +14,12 @@ import (
 
 var conditionTypedValue = regexp.MustCompile(`^("(?:[^"\\]|\\.)*"|'[^']*'|true\b|false\b|null\b|-?\d+(?:\.\d+)?(?:[eE][+-]?\d+)?)`)
 
+const (
+	maxConditionBytes = 4096
+	maxConditionTerms = 128
+	maxConditionDepth = 16
+)
+
 type conditionParser struct {
 	text       string
 	pos, count int
@@ -24,8 +30,8 @@ type conditionParser struct {
 // This parses comparisons, boolean literals, &&, || and parentheses; it does not
 // evaluate expressions or run a general-purpose template/expression language.
 func parseCondition(value string) ([]string, error) {
-	if len(value) > 4096 {
-		return nil, fmt.Errorf("condition is too long")
+	if len(value) > maxConditionBytes {
+		return nil, fmt.Errorf("condition exceeds %d bytes", maxConditionBytes)
 	}
 	p := &conditionParser{text: value}
 	if err := p.or(0); err != nil {
@@ -76,8 +82,8 @@ func (p *conditionParser) and(depth int) error {
 
 func (p *conditionParser) primary(depth int) error {
 	p.count++
-	if p.count > 128 || depth > 16 {
-		return fmt.Errorf("condition is too complex")
+	if p.count > maxConditionTerms || depth > maxConditionDepth {
+		return fmt.Errorf("condition exceeds %d terms or %d nesting levels", maxConditionTerms, maxConditionDepth)
 	}
 	if p.take("(") {
 		if err := p.or(depth + 1); err != nil {

@@ -11,6 +11,7 @@ import (
 	"crypto/x509"
 	"errors"
 	"fmt"
+	"github.com/dsx-ai-factory/run-ai/control-plane/workloads/internal/generated/pkg/api"
 	"io"
 	"net"
 	"net/http"
@@ -54,6 +55,24 @@ func testRemoteFetcher(handler http.HandlerFunc) (*remoteFetcher, string, *[]str
 }
 
 var _ = Describe("Remote chart acquisition", func() {
+	It("rejects IPv6 site-local literals and DNS answers before dialing", func() {
+		for _, address := range []string{"fec0::1", "feff:ffff::1"} {
+			By("literal " + address)
+			_, err := validateSourceURL("https://[" + address + "]/chart.tgz")
+			Expect(err).To(HaveOccurred())
+			By("DNS " + address)
+			dialed := false
+			fetcher := newRemoteFetcher(inspectionResolver(func(context.Context, string) ([]net.IPAddr, error) {
+				return []net.IPAddr{{IP: net.ParseIP(address)}}, nil
+			}), func(context.Context, string, string) (net.Conn, error) {
+				dialed = true
+				return nil, errors.New("unexpected dial")
+			})
+			_, err = fetcher.safeDial(context.Background(), "tcp", "registry.example.com:443")
+			Expect(err).To(HaveOccurred())
+			Expect(dialed).To(BeFalse())
+		}
+	})
 
 	It("Fetch Remote Direct And Repository", func() {
 
@@ -103,8 +122,8 @@ var _ = Describe("Remote chart acquisition", func() {
 			io.WriteString(w, "chart-archive")
 		})
 		_, err := fetcher.fetch(context.Background(), Selection{Repo: base + "/repo", ChartName: fixtureChartName, ChartVersion: "1"}, "")
-		var typed *Error
-		Expect(!errors.As(err, &typed) || typed.Code != "invalid_chart_index").To(BeFalse(), func() string {
+		var typed *api.Error
+		Expect(!errors.As(err, &typed) || !strings.HasPrefix(typed.Message, "invalid_chart_index:")).To(BeFalse(), func() string {
 			return fmt.Sprintf("expanded repository aliases were accepted: %v", err)
 		})
 	})
@@ -119,8 +138,8 @@ var _ = Describe("Remote chart acquisition", func() {
 				_, err := FetchRemote(context.Background(), Selection{ChartURL: raw}, "")
 				Expect(err).NotTo(BeNil(), "unsafe source accepted")
 
-				var typed *Error
-				Expect(!errors.As(err, &typed) || typed.StatusCode != http.StatusBadRequest).To(BeFalse(), func() string {
+				var typed *api.Error
+				Expect(!errors.As(err, &typed) || typed.Code != http.StatusBadRequest).To(BeFalse(), func() string {
 					return fmt.Sprintf("untyped error: %v", err)
 				})
 				Expect(strings.Contains(err.Error(), "password")).To(BeFalse(),
@@ -194,17 +213,17 @@ var _ = Describe("Remote chart acquisition", func() {
 			selection  Selection
 			wantStatus int
 		}{
-			{name: "duplicate index keys", body: "entries: {}\nentries: {}\n", wantStatus: 422},
-			{name: "missing exact version", body: "entries:\n  app:\n    - version: '2'\n      urls: [chart.tgz]\n", wantStatus: 422},
-			{name: "index too large", body: strings.Repeat("x", (1<<20)+1), wantStatus: 422},
+			{name: "duplicate index keys", body: "entries: {}\nentries: {}\n", wantStatus: http.StatusBadRequest},
+			{name: "missing exact version", body: "entries:\n  app:\n    - version: '2'\n      urls: [chart.tgz]\n", wantStatus: http.StatusBadRequest},
+			{name: "index too large", body: strings.Repeat("x", (1<<20)+1), wantStatus: http.StatusBadRequest},
 		}
 		for _, tc := range cases {
 			{
 				By(tc.name)
 				fetcher, base, _ := testRemoteFetcher(func(w http.ResponseWriter, r *http.Request) { io.WriteString(w, tc.body) })
 				_, err := fetcher.fetch(context.Background(), Selection{Repo: base, ChartName: fixtureChartName, ChartVersion: "1"}, "")
-				var typed *Error
-				Expect(!errors.As(err, &typed) || typed.StatusCode != tc.wantStatus).To(BeFalse(), func() string {
+				var typed *api.Error
+				Expect(!errors.As(err, &typed) || typed.Code != int32(tc.wantStatus)).To(BeFalse(), func() string {
 					return fmt.Sprintf("wrong failure %v", err)
 				})
 			}
@@ -268,7 +287,7 @@ var _ = Describe("Remote chart acquisition", func() {
 			Expect(err).NotTo(HaveOccurred())
 		}
 	})
-	It("Fetch Remote Upstream HTTP Failures Return Bad Gateway", func() {
+	It("Fetch Remote Upstream HTTP Failures Return Service Unavailable", func() {
 		for _, status := range []int{http.StatusUnauthorized, http.StatusForbidden, http.StatusNotFound, http.StatusInternalServerError, http.StatusServiceUnavailable} {
 			{
 				By(http.StatusText(status))
@@ -281,8 +300,8 @@ var _ = Describe("Remote chart acquisition", func() {
 					{Repo: base, ChartName: fixtureChartName, ChartVersion: "1"},
 				} {
 					_, err := fetcher.fetch(context.Background(), selection, "synthetic-test-key")
-					var sourceErr *Error
-					Expect(!errors.As(err, &sourceErr) || sourceErr.StatusCode != http.StatusBadGateway || sourceErr.Code != "chart_download_failed").To(BeFalse(), func() string {
+					var sourceErr *api.Error
+					Expect(!errors.As(err, &sourceErr) || sourceErr.Code != http.StatusServiceUnavailable || !strings.HasPrefix(sourceErr.Message, "chart_download_failed:")).To(BeFalse(), func() string {
 						return fmt.Sprintf("upstream HTTP %d returned %v", status, err)
 					})
 					Expect(strings.Contains(err.Error(), "upstream-sensitive") || strings.Contains(err.Error(), "synthetic-test-key")).To(BeFalse(), func() string {

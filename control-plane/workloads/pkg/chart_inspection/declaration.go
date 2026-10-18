@@ -6,6 +6,7 @@ package chart_inspection
 import (
 	"encoding/json"
 	"fmt"
+	"github.com/dsx-ai-factory/run-ai/control-plane/workloads/internal/generated/pkg/api"
 	"math"
 	"math/big"
 	"net"
@@ -14,9 +15,12 @@ import (
 	"strconv"
 	"strings"
 	"unicode/utf8"
+
+	"github.com/dsx-ai-factory/run-ai/runai-application-packages/datastructs"
 )
 
 const (
+	maxChildQuestionDepth    = 4
 	literalTrue              = "true"
 	literalFalse             = "false"
 	questionFloat            = "float"
@@ -31,9 +35,11 @@ const (
 	warningUnusableQuestions = "UNUSABLE_QUESTIONS"
 )
 
-var questionTypes = words("string multiline int float boolean enum radio hostname ipaddr cidr cron array[string] map[string] password storageclass pvc configmap")
-var questionProperties = words("variable label description type default required group min max min_length max_length options multiple show_if show_subquestion_if show_subquestions_if subquestions")
-var textTypes = words("string multiline password storageclass pvc configmap hostname ipaddr cidr cron")
+var questionTypes = datastructs.NewSet(strings.Fields("string multiline int float boolean enum radio hostname ipaddr cidr cron array[string] map[string] password storageclass pvc configmap")...)
+var questionProperties = datastructs.NewSet(
+	strings.Fields("variable label description type default required group min max min_length max_length options multiple show_if show_subquestion_if show_subquestions_if subquestions")...,
+)
+var textTypes = datastructs.NewSet(strings.Fields("string multiline password storageclass pvc configmap hostname ipaddr cidr cron")...)
 var hostnamePart = regexp.MustCompile(`(?i)^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$`)
 var cronPart = regexp.MustCompile(`^(\*|\d+(?:-\d+)?)(?:/(\d+))?$`)
 
@@ -48,26 +54,23 @@ type pathTree struct {
 }
 type declarationValidator struct {
 	defaults     map[string]any
-	warnings     []Warning
+	warnings     []api.AiApplicationChartInspectionWarning
 	groups       []map[string]any
 	groupNames   map[string]bool
 	questions    []declarationQuestion
 	destinations pathTree
 }
 
-func words(value string) map[string]bool {
-	out := map[string]bool{}
-	for _, word := range strings.Fields(value) {
-		out[word] = true
-	}
-	return out
-}
-
 // Build the form separately and publish it only after all fields and visibility
 // dependencies validate. A partial form could omit required configuration.
-func parseDeclaration(declaration, defaults map[string]any, out *Result) {
-	v := &declarationValidator{defaults: defaults, groupNames: map[string]bool{}, warnings: []Warning{}, groups: []map[string]any{}}
-	v.ignoreUnknown(declaration, words("questions groups"), "$")
+func parseDeclaration(declaration, defaults map[string]any, out *api.AiApplicationChartInspectionResponse) {
+	v := &declarationValidator{
+		defaults:   defaults,
+		groupNames: map[string]bool{},
+		warnings:   []api.AiApplicationChartInspectionWarning{},
+		groups:     []map[string]any{},
+	}
+	v.ignoreUnknown(declaration, datastructs.NewSet(strings.Fields("questions groups")...), "$")
 	if groups, exists := declaration["groups"]; exists {
 		if err := v.parseGroups(groups); err != nil {
 			v.unusable(out, err)
@@ -98,24 +101,24 @@ func parseDeclaration(declaration, defaults map[string]any, out *Result) {
 	out.Warnings = append(out.Warnings, v.warnings...)
 }
 
-func (v *declarationValidator) unusable(out *Result, err error) {
+func (v *declarationValidator) unusable(out *api.AiApplicationChartInspectionResponse, err error) {
 	out.QuestionsStatus = QuestionsUnusable
 	out.Questions = []map[string]any{}
 	out.Groups = []map[string]any{}
 	out.Warnings = append(out.Warnings, v.warnings...)
-	out.Warnings = append(out.Warnings, Warning{Code: warningUnusableQuestions, Message: err.Error(), Path: "$"})
+	out.Warnings = append(out.Warnings, api.AiApplicationChartInspectionWarning{Code: warningUnusableQuestions, Message: err.Error(), Path: "$"})
 }
 
-func (v *declarationValidator) ignoreUnknown(raw map[string]any, known map[string]bool, where string) {
+func (v *declarationValidator) ignoreUnknown(raw map[string]any, known datastructs.Set[string], where string) {
 	unknown := []string{}
 	for key := range raw {
-		if !known[key] {
+		if !known.Has(key) {
 			unknown = append(unknown, key)
 		}
 	}
 	sort.Strings(unknown)
 	for _, key := range unknown {
-		v.warnings = append(v.warnings, Warning{Code: "IGNORED_PROPERTY", Message: "Unsupported optional property was ignored", Path: where + "." + key})
+		v.warnings = append(v.warnings, api.AiApplicationChartInspectionWarning{Code: "IGNORED_PROPERTY", Message: "Unsupported optional property was ignored", Path: where + "." + key})
 	}
 }
 
@@ -154,7 +157,7 @@ func (v *declarationValidator) parseGroups(value any) error {
 			}
 			description = strings.TrimSpace(supplied)
 		}
-		v.ignoreUnknown(raw, words("name label description"), where)
+		v.ignoreUnknown(raw, datastructs.NewSet(strings.Fields("name label description")...), where)
 		v.groups = append(v.groups, map[string]any{"name": key, propertyLabel: label, propertyDescription: description})
 		v.groupNames[key] = true
 	}
@@ -164,7 +167,7 @@ func (v *declarationValidator) parseGroups(value any) error {
 // Root fields start at depth zero; four child levels allow five levels total.
 // Child paths are absolute chart values paths, not relative to their parent.
 func (v *declarationValidator) question(value any, depth int, parent, parentGroup, where string) (map[string]any, error) {
-	if depth > 4 {
+	if depth > maxChildQuestionDepth {
 		return nil, fmt.Errorf("%s exceeds four child levels", where)
 	}
 	raw, ok := value.(map[string]any)
@@ -192,8 +195,8 @@ func (v *declarationValidator) question(value any, depth int, parent, parentGrou
 	}
 	if kind == "number" {
 		kind = questionFloat
-	} else if !questionTypes[kind] {
-		v.warnings = append(v.warnings, Warning{Code: "UNKNOWN_TYPE", Message: "Unknown field type uses a text field", Path: where + ".type"})
+	} else if !questionTypes.Has(kind) {
+		v.warnings = append(v.warnings, api.AiApplicationChartInspectionWarning{Code: "UNKNOWN_TYPE", Message: "Unknown field type uses a text field", Path: where + ".type"})
 		kind = "string"
 	}
 	question := map[string]any{"variable": variable, "type": kind, propertyLabel: variable, propertyDescription: "", "required": false}
@@ -209,7 +212,7 @@ func (v *declarationValidator) question(value any, depth int, parent, parentGrou
 		}
 	}
 	if labelDefaulted {
-		v.warnings = append(v.warnings, Warning{Code: "LABEL_DEFAULTED", Message: "Missing field label uses its values path", Path: where + ".label"})
+		v.warnings = append(v.warnings, api.AiApplicationChartInspectionWarning{Code: "LABEL_DEFAULTED", Message: "Missing field label uses its values path", Path: where + ".label"})
 	}
 	for _, key := range []string{propertyDescription, "group", "show_if"} {
 		if item, exists := raw[key]; exists {
@@ -259,7 +262,7 @@ func (v *declarationValidator) question(value any, depth int, parent, parentGrou
 			if kind != questionInteger && kind != questionFloat {
 				return nil, fmt.Errorf("%s %s requires a numeric field", where, key)
 			}
-		} else if !textTypes[kind] || number.Sign() < 0 || !number.IsInt() {
+		} else if !textTypes.Has(kind) || number.Sign() < 0 || !number.IsInt() {
 			return nil, fmt.Errorf("%s %s requires text and a nonnegative integer", where, key)
 		}
 		question[key] = item
@@ -319,7 +322,7 @@ func (v *declarationValidator) question(value any, depth int, parent, parentGrou
 	}
 	v.ignoreUnknown(raw, questionProperties, where)
 	if _, exists := readPath(v.defaults, segments); v.defaults != nil && !exists {
-		v.warnings = append(v.warnings, Warning{Code: "MISSING_DEFAULT_PATH", Message: "Field path is absent from the chart defaults", Path: variable})
+		v.warnings = append(v.warnings, api.AiApplicationChartInspectionWarning{Code: "MISSING_DEFAULT_PATH", Message: "Field path is absent from the chart defaults", Path: variable})
 	}
 	references := []string{}
 	if text, ok := question["show_if"].(string); ok {
@@ -396,7 +399,7 @@ func (v *declarationValidator) checkConditions() error {
 			if known[key] {
 				edges[q.key] = append(edges[q.key], key)
 			} else if _, exists := readPath(v.defaults, segments); v.defaults != nil && !exists {
-				v.warnings = append(v.warnings, Warning{Code: "UNKNOWN_CONDITION_REFERENCE", Message: "Condition path is absent from chart defaults and declared fields", Path: reference})
+				v.warnings = append(v.warnings, api.AiApplicationChartInspectionWarning{Code: "UNKNOWN_CONDITION_REFERENCE", Message: "Condition path is absent from chart defaults and declared fields", Path: reference})
 			}
 		}
 	}
@@ -514,7 +517,7 @@ func (v *declarationValidator) normalizeOptions(value any, where string) ([]any,
 			if !exists {
 				return nil, fmt.Errorf("options require a label and value")
 			}
-			v.ignoreUnknown(object, words("label value"), fmt.Sprintf("%s[%d]", where, index))
+			v.ignoreUnknown(object, datastructs.NewSet(strings.Fields("label value")...), fmt.Sprintf("%s[%d]", where, index))
 		} else {
 			label = fmt.Sprint(value)
 			if value == nil {
@@ -539,7 +542,7 @@ func validateAnswer(question map[string]any, value any) error {
 		return nil
 	}
 	kind := question["type"].(string)
-	if textTypes[kind] {
+	if textTypes.Has(kind) {
 		text, ok := value.(string)
 		if !ok {
 			return fmt.Errorf("default must be text")

@@ -8,6 +8,7 @@ package services
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -204,9 +205,10 @@ func TestChartInspectionHTTPDistinguishesDeclarationsAndAcquisitionFailures(t *t
 		{name: "usable", questions: &usable, code: 200, status: "usable"},
 		{name: "invalid declaration", questions: &unusable, code: 200, status: "unusable"},
 		{name: "malformed questions", questions: &malformed, code: 200, status: "unusable"},
-		{name: "download failure", fetchErr: &chartinspection.Error{StatusCode: 502, Code: "chart_download_failed", Message: "Chart download failed."}, code: 502},
-		{name: "upstream denial", fetchErr: &chartinspection.Error{StatusCode: 403, Code: "chart_download_denied", Message: "Chart access denied."}, code: 403},
-		{name: "corrupt archive", corrupt: true, code: 422},
+		{name: "download failure", fetchErr: api.NewError(http.StatusServiceUnavailable, "chart_download_failed: Chart download failed.", nil), code: http.StatusServiceUnavailable},
+		{name: "upstream denial", fetchErr: api.NewError(http.StatusForbidden, "chart_download_denied: Chart access denied.", nil), code: 403},
+		{name: "corrupt archive", corrupt: true, code: http.StatusBadRequest},
+		{name: "unexpected internal failure", fetchErr: errors.New("private internal diagnostic"), code: http.StatusInternalServerError},
 		{name: "expired request", fetchErr: context.DeadlineExceeded, code: 408},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
@@ -230,6 +232,9 @@ func TestChartInspectionHTTPDistinguishesDeclarationsAndAcquisitionFailures(t *t
 				t.Fatal(err)
 			}
 			if tc.code != 200 {
+				if tc.code == http.StatusInternalServerError && strings.Contains(response.Body.String(), "private internal diagnostic") {
+					t.Fatal("unexpected internal failure leaked its details")
+				}
 				if _, exists := body["questionsStatus"]; exists {
 					t.Fatal("inspection failure was returned as questions metadata")
 				}

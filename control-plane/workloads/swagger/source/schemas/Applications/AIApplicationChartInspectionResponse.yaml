@@ -12,6 +12,7 @@ required:
   - questions
   - warnings
 properties:
+  # Return archive identity verbatim; submission name/version length limits do not apply.
   chartName:
     type: string
     description: Chart name declared in the archive Chart.yaml.

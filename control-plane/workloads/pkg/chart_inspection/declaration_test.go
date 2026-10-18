@@ -7,13 +7,14 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+	"github.com/dsx-ai-factory/run-ai/control-plane/workloads/internal/generated/pkg/api"
 	"strings"
 
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 )
 
-func inspectQuestions(questions, values string) *Result {
+func inspectQuestions(questions, values string) *api.AiApplicationChartInspectionResponse {
 	GinkgoHelper()
 
 	got, err := ParseArchive(chartArchive(
@@ -26,7 +27,7 @@ func inspectQuestions(questions, values string) *Result {
 	return got
 }
 
-func hasWarning(got *Result, code string) bool {
+func hasWarning(got *api.AiApplicationChartInspectionResponse, code string) bool {
 	for _, warning := range got.Warnings {
 		if warning.Code == code {
 			return true

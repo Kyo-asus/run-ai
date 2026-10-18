@@ -12687,16 +12687,6 @@ paths:
               schema:
                 $ref: '#/components/schemas/Error'
           description: Request entity too large
-        "422":
-          content:
-            application/json:
-              example:
-                code: 422
-                message: Validation failed - Invalid workload configuration
-              schema:
-                $ref: '#/components/schemas/Error'
-          description: Unprocessable entity - The request was well-formed but contains
-            semantic errors.
         "500":
           content:
             application/json:
@@ -12706,22 +12696,13 @@ paths:
               schema:
                 $ref: '#/components/schemas/Error'
           description: unexpected error
-        "502":
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/Error'
-          description: The selected chart could not be downloaded from its upstream
-            source.
         "503":
           content:
             application/json:
-              example:
-                code: 503
-                message: Please try again in few minutes.
               schema:
                 $ref: '#/components/schemas/Error'
-          description: unexpected error
+          description: The upstream chart source is unavailable or inspection capacity
+            is exhausted.
       summary: Inspect a Helm chart questions declaration.
       tags:
       - AI Applications
@@ -14435,16 +14416,6 @@ components:
           schema:
             $ref: '#/components/schemas/Error'
       description: Request entity too large
-    "422UnprocessableEntity":
-      content:
-        application/json:
-          example:
-            code: 422
-            message: Validation failed - Invalid workload configuration
-          schema:
-            $ref: '#/components/schemas/Error'
-      description: Unprocessable entity - The request was well-formed but contains
-        semantic errors.
     "400BadSubmissionRequest":
       content:
         application/json:

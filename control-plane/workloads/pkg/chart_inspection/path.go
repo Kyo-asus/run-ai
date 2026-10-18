@@ -11,13 +11,19 @@ import (
 	"strings"
 )
 
+const (
+	maxValuesPathBytes  = 512
+	maxValuesPathDepth  = 32
+	maxValuesArrayIndex = 10000
+)
+
 var pathIdentifier = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_-]*`)
 
 // Accept a bounded values-path grammar: dotted keys, bracketed array indices
 // and JSON-quoted keys. Reserved keys are rejected because consumers may apply
 // these bindings to JavaScript objects.
 func parsePath(value string) ([]any, error) {
-	if value == "" || len(value) > 512 {
+	if value == "" || len(value) > maxValuesPathBytes {
 		return nil, fmt.Errorf("invalid values path")
 	}
 	segments := []any{}
@@ -73,7 +79,7 @@ func parsePath(value string) ([]any, error) {
 					return nil, fmt.Errorf("invalid array index")
 				}
 				index, err := strconv.Atoi(value[start:pos])
-				if err != nil || index > 10000 {
+				if err != nil || index > maxValuesArrayIndex {
 					return nil, fmt.Errorf("invalid array index")
 				}
 				segments = append(segments, index)
@@ -86,7 +92,7 @@ func parsePath(value string) ([]any, error) {
 			return nil, fmt.Errorf("invalid values path")
 		}
 	}
-	if len(segments) > 32 {
+	if len(segments) > maxValuesPathDepth {
 		return nil, fmt.Errorf("values path is too deep")
 	}
 	for _, segment := range segments {

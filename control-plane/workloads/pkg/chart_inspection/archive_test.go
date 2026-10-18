@@ -10,7 +10,10 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"net/http"
 	"strings"
+
+	"github.com/dsx-ai-factory/run-ai/control-plane/workloads/internal/generated/pkg/api"
 
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
@@ -62,6 +65,19 @@ func chartArchive(entries ...archiveEntry) []byte {
 }
 
 var _ = Describe("Chart archive parsing", func() {
+	It("keeps malformed archive diagnostics as validation errors", func() {
+		archive := chartArchive(archiveEntry{
+			name: fixtureChartMetadataPath,
+			body: fixtureChartMetadataYAML + "record not found: first\nrecord not found: second\n",
+		})
+		_, err := ParseArchive(archive)
+		Expect(err).To(HaveOccurred())
+		apiErr, ok := err.(*api.Error)
+		Expect(ok).To(BeTrue())
+		Expect(apiErr.Code).To(BeNumerically("==", http.StatusBadRequest))
+		Expect(apiErr.Details).To(ContainSubstring("duplicate YAML key"))
+	})
+
 	It("Inspector Bounds Expanded YAML Aliases", func() {
 		for _, filename := range []string{fixtureQuestionsFilename, fixtureYMLQuestionsFilename} {
 			for _, tc := range []struct{ name, value string }{

@@ -51,15 +51,11 @@ post:
             $ref: '../../../../infra/openapi/docs/responses/Error.yaml'
     413:
       $ref: '../../../../infra/openapi/docs/responses/413RequestEntityTooLarge.yaml'
-    422:
-      $ref: '../../../../infra/openapi/docs/responses/422UnprocessableEntity.yaml'
     500:
       $ref: '../../../../infra/openapi/docs/responses/500InternalServerError.yaml'
-    502:
-      description: The selected chart could not be downloaded from its upstream source.
+    503:
+      description: The upstream chart source is unavailable or inspection capacity is exhausted.
       content:
         application/json:
           schema:
             $ref: '../../../../infra/openapi/docs/responses/Error.yaml'
-    503:
-      $ref: '../../../../infra/openapi/docs/responses/503ServiceUnavailable.yaml'

@@ -18,15 +18,25 @@ import (
 	"path"
 	"strings"
 
+	"github.com/dsx-ai-factory/run-ai/control-plane/workloads/internal/generated/pkg/api"
 	"go.yaml.in/yaml/v3"
 )
 
 const (
-	maxCompressedBytes = 32 << 20
-	maxExpandedBytes   = 64 << 20
-	maxArchiveEntries  = 4096
-	maxMetadataBytes   = 1 << 20
-	maxYAMLScalarBytes = 4 << 20
+	chartMetadataFilename = "Chart.yaml"
+	questionsYAMLFilename = "questions.yaml"
+	questionsYMLFilename  = "questions.yml"
+	chartValuesFilename   = "values.yaml"
+	chartNameProperty     = "name"
+	chartVersionProperty  = "version"
+	tarPaddingBufferBytes = 32 << 10
+	maxYAMLNodes          = 50000
+	maxYAMLDepth          = 64
+	maxCompressedBytes    = 32 << 20
+	maxExpandedBytes      = 64 << 20
+	maxArchiveEntries     = 4096
+	maxMetadataBytes      = 1 << 20
+	maxYAMLScalarBytes    = 4 << 20
 )
 
 // Limits apply to expanded values, not only input bytes: aliases can repeat a
@@ -46,8 +56,19 @@ func (b *yamlBudget) charge(value string) error {
 
 // ParseArchive reads bounded root metadata from a single-root gzip/tar archive.
 // It returns errors for unsafe or malformed archives, but reports missing or
-// unusable question declarations in Result so callers can distinguish them.
-func ParseArchive(data []byte) (*Result, error) {
+// unusable question declarations in api.AiApplicationChartInspectionResponse so callers can distinguish them.
+func ParseArchive(data []byte) (*api.AiApplicationChartInspectionResponse, error) {
+	result, err := parseArchive(data)
+	if err != nil {
+		validationErr := api.NewValidationError("invalid Helm chart archive")
+		// WithDetails interprets database error text; chart contents must not change the status.
+		validationErr.Details = err.Error()
+		return nil, validationErr
+	}
+	return result, nil
+}
+
+func parseArchive(data []byte) (*api.AiApplicationChartInspectionResponse, error) {
 	if len(data) > maxCompressedBytes {
 		return nil, fmt.Errorf("chart archive exceeds 32 MiB")
 	}
@@ -105,7 +126,7 @@ func ParseArchive(data []byte) (*Result, error) {
 			continue
 		}
 		file := parts[1]
-		if file != "Chart.yaml" && file != "questions.yaml" && file != "questions.yml" && file != "values.yaml" {
+		if file != chartMetadataFilename && file != questionsYAMLFilename && file != questionsYMLFilename && file != chartValuesFilename {
 			continue
 		}
 		if _, exists := files[file]; exists {
@@ -130,12 +151,12 @@ func ParseArchive(data []byte) (*Result, error) {
 	if source.Len() != 0 {
 		return nil, fmt.Errorf("chart archive contains trailing gzip data")
 	}
-	if _, yamlExists := files["questions.yaml"]; yamlExists {
-		if _, ymlExists := files["questions.yml"]; ymlExists {
+	if _, yamlExists := files[questionsYAMLFilename]; yamlExists {
+		if _, ymlExists := files[questionsYMLFilename]; ymlExists {
 			return nil, fmt.Errorf("chart archive contains both root questions.yaml and questions.yml")
 		}
 	}
-	metadata, exists := files["Chart.yaml"]
+	metadata, exists := files[chartMetadataFilename]
 	if !exists {
 		return nil, fmt.Errorf("chart archive has no root Chart.yaml")
 	}
@@ -143,26 +164,34 @@ func ParseArchive(data []byte) (*Result, error) {
 	if err != nil {
 		return nil, fmt.Errorf("parse Chart.yaml: %w", err)
 	}
-	name, nameOK := chart["name"].(string)
-	version, versionOK := chart["version"].(string)
+	name, nameOK := chart[chartNameProperty].(string)
+	version, versionOK := chart[chartVersionProperty].(string)
 	if !nameOK || strings.TrimSpace(name) == "" || !versionOK || strings.TrimSpace(version) == "" {
 		return nil, fmt.Errorf("chart metadata requires a chart name and version")
 	}
 	sum := sha256.Sum256(data)
-	out := &Result{ChartName: name, ChartVersion: version, ArchiveSHA256: hex.EncodeToString(sum[:]), QuestionsStatus: QuestionsAbsent, Groups: []map[string]any{}, Questions: []map[string]any{}, Warnings: []Warning{}}
+	out := &api.AiApplicationChartInspectionResponse{
+		ChartName:       name,
+		ChartVersion:    version,
+		ArchiveSHA256:   hex.EncodeToString(sum[:]),
+		QuestionsStatus: QuestionsAbsent,
+		Groups:          []map[string]any{},
+		Questions:       []map[string]any{},
+		Warnings:        []api.AiApplicationChartInspectionWarning{},
+	}
 	defaults := map[string]any{}
-	if values, ok := files["values.yaml"]; ok {
+	if values, ok := files[chartValuesFilename]; ok {
 		defaults, err = yamlObject(values)
 		if err != nil {
 			// Defaults are advisory; nil suppresses checks that require readable defaults.
 			defaults = nil
-			out.Warnings = append(out.Warnings, Warning{Code: "UNREADABLE_DEFAULTS", Message: "values.yaml could not be read for default checks", Path: "$"})
+			out.Warnings = append(out.Warnings, api.AiApplicationChartInspectionWarning{Code: "UNREADABLE_DEFAULTS", Message: "values.yaml could not be read for default checks", Path: "$"})
 		}
 	}
-	questionsFile := "questions.yaml"
+	questionsFile := questionsYAMLFilename
 	questions, ok := files[questionsFile]
 	if !ok {
-		questionsFile = "questions.yml"
+		questionsFile = questionsYMLFilename
 		questions, ok = files[questionsFile]
 	}
 	if !ok {
@@ -172,13 +201,13 @@ func ParseArchive(data []byte) (*Result, error) {
 	out.QuestionsStatus = QuestionsUnusable
 	declaration, err := yamlObject(questions)
 	if err != nil {
-		out.Warnings = append(out.Warnings, Warning{Code: warningUnusableQuestions, Message: questionsFile + " must contain valid YAML with an object root: " + err.Error(), Path: "$"})
+		out.Warnings = append(out.Warnings, api.AiApplicationChartInspectionWarning{Code: warningUnusableQuestions, Message: fmt.Sprintf("%s must contain valid YAML with an object root: %s", questionsFile, err), Path: "$"})
 		return out, nil
 	}
 	parseDeclaration(declaration, defaults, out)
 	for index := range out.Warnings {
 		if out.Warnings[index].Code == warningUnusableQuestions {
-			out.Warnings[index].Message = questionsFile + ": " + out.Warnings[index].Message
+			out.Warnings[index].Message = fmt.Sprintf("%s: %s", questionsFile, out.Warnings[index].Message)
 		}
 	}
 	return out, nil
@@ -187,7 +216,7 @@ func ParseArchive(data []byte) (*Result, error) {
 // Read through the gzip trailer to validate its checksum and reject payloads
 // hidden after the tar end marker; legal zero padding is still accepted.
 func consumeTarPadding(reader io.Reader) error {
-	buffer := make([]byte, 32<<10)
+	buffer := make([]byte, tarPaddingBufferBytes)
 	for {
 		count, err := reader.Read(buffer)
 		for _, value := range buffer[:count] {
@@ -228,7 +257,7 @@ func yamlObject(data []byte) (map[string]any, error) {
 	if document.Content[0].Tag == "!!null" {
 		return map[string]any{}, nil
 	}
-	budget := &yamlBudget{nodes: 50000, bytes: maxYAMLScalarBytes}
+	budget := &yamlBudget{nodes: maxYAMLNodes, bytes: maxYAMLScalarBytes}
 	value, err := yamlValue(document.Content[0], map[*yaml.Node]bool{}, 0, budget)
 	if err != nil {
 		return nil, err
@@ -242,7 +271,7 @@ func yamlObject(data []byte) (map[string]any, error) {
 
 func yamlValue(node *yaml.Node, active map[*yaml.Node]bool, depth int, budget *yamlBudget) (any, error) {
 	budget.nodes--
-	if depth > 64 || budget.nodes < 0 || active[node] {
+	if depth > maxYAMLDepth || budget.nodes < 0 || active[node] {
 		return nil, fmt.Errorf("YAML is too complex or contains an alias cycle")
 	}
 	active[node] = true

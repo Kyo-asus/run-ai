@@ -8206,14 +8206,11 @@
           "413": {
             "$ref": "#/components/responses/413RequestEntityTooLarge"
           },
-          "422": {
-            "$ref": "#/components/responses/422UnprocessableEntity"
-          },
           "500": {
             "$ref": "#/components/responses/500InternalServerError"
           },
-          "502": {
-            "description": "The selected chart could not be downloaded from its upstream source.",
+          "503": {
+            "description": "The upstream chart source is unavailable or inspection capacity is exhausted.",
             "content": {
               "application/json": {
                 "schema": {
@@ -8221,9 +8218,6 @@
                 }
               }
             }
-          },
-          "503": {
-            "$ref": "#/components/responses/503ServiceUnavailable"
           }
         }
       }
@@ -25410,20 +25404,6 @@
           "application/json": {
             "schema": {
               "$ref": "#/components/schemas/Error"
-            }
-          }
-        }
-      },
-      "422UnprocessableEntity": {
-        "description": "Unprocessable entity - The request was well-formed but contains semantic errors.",
-        "content": {
-          "application/json": {
-            "schema": {
-              "$ref": "#/components/schemas/Error"
-            },
-            "example": {
-              "code": 422,
-              "message": "Validation failed - Invalid workload configuration"
             }
           }
         }
