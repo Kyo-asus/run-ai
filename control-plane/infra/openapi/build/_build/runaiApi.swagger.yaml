@@ -2019,7 +2019,7 @@ paths:
     patch:
       summary: Patch department resources
       operationId: patch_department_resources
-      description: Updates the resources of the node pools in the request. Node pools that are not in the request stay unchanged. Each node pool in the request is replaced as a whole, so omitted fields are set to their defaults. To change only part of a node pool, for example only its rank, use the node pool resources batch patch.
+      description: Updates the resources of the node pools in the request. Node pools that are not in the request stay unchanged. Each node pool in the request is replaced as a whole. GPU deserved is required for node pools with quota enabled, and other omitted fields are set to their defaults. To change only part of a node pool, for example only its rank, use the node pool resources batch patch.
       tags:
         - Departments
       parameters:
@@ -2332,7 +2332,7 @@ paths:
     patch:
       summary: Patch project resources
       operationId: patch_project_resources
-      description: Updates the resources of the node pools in the request. Node pools that are not in the request stay unchanged. Each node pool in the request is replaced as a whole, so omitted fields are set to their defaults. To change only part of a node pool, for example only its rank, use the node pool resources batch patch.
+      description: Updates the resources of the node pools in the request. Node pools that are not in the request stay unchanged. Each node pool in the request is replaced as a whole. GPU deserved is required for node pools with quota enabled, and other omitted fields are set to their defaults. To change only part of a node pool, for example only its rank, use the node pool resources batch patch.
       tags:
         - Projects
       parameters:

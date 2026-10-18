@@ -8037,7 +8037,7 @@ export const DepartmentsApiAxiosParamCreator = function (configuration?: Configu
             };
         },
         /**
-         * Updates the resources of the node pools in the request. Node pools that are not in the request stay unchanged. Each node pool in the request is replaced as a whole, so omitted fields are set to their defaults. To change only part of a node pool, for example only its rank, use the node pool resources batch patch.
+         * Updates the resources of the node pools in the request. Node pools that are not in the request stay unchanged. Each node pool in the request is replaced as a whole. GPU deserved is required for node pools with quota enabled, and other omitted fields are set to their defaults. To change only part of a node pool, for example only its rank, use the node pool resources batch patch.
          * @summary Patch department resources
          * @param {string} departmentId The id of the department.
          * @param {Array<ResourcesNullable>} resourcesNullable Department resources to update.
@@ -8461,7 +8461,7 @@ export const DepartmentsApiFp = function(configuration?: Configuration) {
             return createRequestFunction(localVarAxiosArgs, globalAxios, BASE_PATH, configuration);
         },
         /**
-         * Updates the resources of the node pools in the request. Node pools that are not in the request stay unchanged. Each node pool in the request is replaced as a whole, so omitted fields are set to their defaults. To change only part of a node pool, for example only its rank, use the node pool resources batch patch.
+         * Updates the resources of the node pools in the request. Node pools that are not in the request stay unchanged. Each node pool in the request is replaced as a whole. GPU deserved is required for node pools with quota enabled, and other omitted fields are set to their defaults. To change only part of a node pool, for example only its rank, use the node pool resources batch patch.
          * @summary Patch department resources
          * @param {string} departmentId The id of the department.
          * @param {Array<ResourcesNullable>} resourcesNullable Department resources to update.
@@ -8708,7 +8708,7 @@ export const DepartmentsApiFactory = function (configuration?: Configuration, ba
             return localVarFp.getSyncDepartments(clusterId, updatedAfter, offset, limit, options).then((request) => request(axios, basePath));
         },
         /**
-         * Updates the resources of the node pools in the request. Node pools that are not in the request stay unchanged. Each node pool in the request is replaced as a whole, so omitted fields are set to their defaults. To change only part of a node pool, for example only its rank, use the node pool resources batch patch.
+         * Updates the resources of the node pools in the request. Node pools that are not in the request stay unchanged. Each node pool in the request is replaced as a whole. GPU deserved is required for node pools with quota enabled, and other omitted fields are set to their defaults. To change only part of a node pool, for example only its rank, use the node pool resources batch patch.
          * @summary Patch department resources
          * @param {string} departmentId The id of the department.
          * @param {Array<ResourcesNullable>} resourcesNullable Department resources to update.
@@ -8980,7 +8980,7 @@ export class DepartmentsApi extends BaseAPI {
     }
 
     /**
-     * Updates the resources of the node pools in the request. Node pools that are not in the request stay unchanged. Each node pool in the request is replaced as a whole, so omitted fields are set to their defaults. To change only part of a node pool, for example only its rank, use the node pool resources batch patch.
+     * Updates the resources of the node pools in the request. Node pools that are not in the request stay unchanged. Each node pool in the request is replaced as a whole. GPU deserved is required for node pools with quota enabled, and other omitted fields are set to their defaults. To change only part of a node pool, for example only its rank, use the node pool resources batch patch.
      * @summary Patch department resources
      * @param {string} departmentId The id of the department.
      * @param {Array<ResourcesNullable>} resourcesNullable Department resources to update.
@@ -11630,7 +11630,7 @@ export const ProjectsApiAxiosParamCreator = function (configuration?: Configurat
             };
         },
         /**
-         * Updates the resources of the node pools in the request. Node pools that are not in the request stay unchanged. Each node pool in the request is replaced as a whole, so omitted fields are set to their defaults. To change only part of a node pool, for example only its rank, use the node pool resources batch patch.
+         * Updates the resources of the node pools in the request. Node pools that are not in the request stay unchanged. Each node pool in the request is replaced as a whole. GPU deserved is required for node pools with quota enabled, and other omitted fields are set to their defaults. To change only part of a node pool, for example only its rank, use the node pool resources batch patch.
          * @summary Patch project resources
          * @param {string} projectId The project id
          * @param {Array<ResourcesNullable>} resourcesNullable Project resources to patch.
@@ -12159,7 +12159,7 @@ export const ProjectsApiFp = function(configuration?: Configuration) {
             return createRequestFunction(localVarAxiosArgs, globalAxios, BASE_PATH, configuration);
         },
         /**
-         * Updates the resources of the node pools in the request. Node pools that are not in the request stay unchanged. Each node pool in the request is replaced as a whole, so omitted fields are set to their defaults. To change only part of a node pool, for example only its rank, use the node pool resources batch patch.
+         * Updates the resources of the node pools in the request. Node pools that are not in the request stay unchanged. Each node pool in the request is replaced as a whole. GPU deserved is required for node pools with quota enabled, and other omitted fields are set to their defaults. To change only part of a node pool, for example only its rank, use the node pool resources batch patch.
          * @summary Patch project resources
          * @param {string} projectId The project id
          * @param {Array<ResourcesNullable>} resourcesNullable Project resources to patch.
@@ -12455,7 +12455,7 @@ export const ProjectsApiFactory = function (configuration?: Configuration, baseP
             return localVarFp.getSyncProjects(clusterId, updatedAfter, offset, limit, excludePermissions, options).then((request) => request(axios, basePath));
         },
         /**
-         * Updates the resources of the node pools in the request. Node pools that are not in the request stay unchanged. Each node pool in the request is replaced as a whole, so omitted fields are set to their defaults. To change only part of a node pool, for example only its rank, use the node pool resources batch patch.
+         * Updates the resources of the node pools in the request. Node pools that are not in the request stay unchanged. Each node pool in the request is replaced as a whole. GPU deserved is required for node pools with quota enabled, and other omitted fields are set to their defaults. To change only part of a node pool, for example only its rank, use the node pool resources batch patch.
          * @summary Patch project resources
          * @param {string} projectId The project id
          * @param {Array<ResourcesNullable>} resourcesNullable Project resources to patch.
@@ -12776,7 +12776,7 @@ export class ProjectsApi extends BaseAPI {
     }
 
     /**
-     * Updates the resources of the node pools in the request. Node pools that are not in the request stay unchanged. Each node pool in the request is replaced as a whole, so omitted fields are set to their defaults. To change only part of a node pool, for example only its rank, use the node pool resources batch patch.
+     * Updates the resources of the node pools in the request. Node pools that are not in the request stay unchanged. Each node pool in the request is replaced as a whole. GPU deserved is required for node pools with quota enabled, and other omitted fields are set to their defaults. To change only part of a node pool, for example only its rank, use the node pool resources batch patch.
      * @summary Patch project resources
      * @param {string} projectId The project id
      * @param {Array<ResourcesNullable>} resourcesNullable Project resources to patch.
