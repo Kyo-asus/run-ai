@@ -19,6 +19,7 @@ import (
 
 	"github.com/dsx-ai-factory/run-ai/control-plane/workloads/internal/generated/pkg/api"
 	chartinspection "github.com/dsx-ai-factory/run-ai/control-plane/workloads/pkg/chart_inspection"
+	cachetesting "github.com/dsx-ai-factory/run-ai/runai-common-packages/cache/v2/testing"
 	"github.com/dsx-ai-factory/run-ai/runai-common-packages/runaictx"
 	"github.com/google/uuid"
 )
@@ -39,6 +40,8 @@ func TestChartInspectionRejectsAmbiguousSources(t *testing.T) {
 }
 
 func TestChartInspectionReauthorizesCredentialsOnCacheHits(t *testing.T) {
+	cachetesting.EnableCache()
+	t.Cleanup(cachetesting.DisableCache)
 	allowed := true
 	downloads := 0
 	c := &applicationChartInspector{

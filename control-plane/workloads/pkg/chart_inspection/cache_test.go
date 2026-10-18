@@ -14,6 +14,10 @@ import (
 	"errors"
 	"fmt"
 	"github.com/dsx-ai-factory/run-ai/control-plane/workloads/internal/generated/pkg/api"
+	"github.com/dsx-ai-factory/run-ai/runai-common-packages/cache/v2"
+	"github.com/dsx-ai-factory/run-ai/runai-common-packages/cache/v2/options"
+	cachetesting "github.com/dsx-ai-factory/run-ai/runai-common-packages/cache/v2/testing"
+	"github.com/stretchr/testify/mock"
 	"net/http"
 	"strings"
 	"sync"
@@ -26,6 +30,16 @@ import (
 
 func cacheChart() []byte {
 	return cacheChartMetadata(fixtureChartName, "1")
+}
+
+func mockInspectionCache(registerErr error) *cachetesting.MockCacher {
+	GinkgoHelper()
+	cachetesting.DisableCache()
+	shared := cachetesting.SetMock(GinkgoT())
+	shared.On("Close").Return(nil)
+	shared.On("RegisterStore", cachetesting.KeyFromType[chartInspectionMetadata](), mock.Anything,
+		mock.Anything, mock.Anything, mock.Anything).Return(registerErr)
+	return shared
 }
 
 func ngcCacheSelection() Selection {
@@ -64,6 +78,124 @@ func cacheChartMetadata(name, version string) []byte {
 }
 
 var _ = Describe("Inspection cache and admission", func() {
+	BeforeEach(func() {
+		cachetesting.EnableCache()
+	})
+	AfterEach(func() {
+		cachetesting.DisableCache()
+	})
+
+	It("honors the CP cache disable setting without failing inspection", func() {
+		cachetesting.DisableCache()
+		archive := cacheChart()
+		calls := 0
+		inspector := NewInspector(func(context.Context, Selection, string) ([]byte, error) {
+			calls++
+			return archive, nil
+		}, 0)
+		for n := 0; n < 2; n++ {
+			result, err := inspector.Inspect(context.Background(), ngcCacheSelection(), "tenant", "")
+			Expect(err).NotTo(HaveOccurred())
+			Expect(result.ChartName).To(Equal(fixtureChartName))
+		}
+		Expect(calls).To(Equal(2))
+	})
+
+	It("continues inspection when cache registration, reads, writes, or decoding fail", func() {
+		archive := cacheChart()
+		unavailable := errors.New("cache unavailable")
+		for _, failure := range []string{"registration", "read", "write", "decode"} {
+			By(failure)
+			var registerErr error
+			if failure == "registration" {
+				registerErr = unavailable
+			}
+			shared := mockInspectionCache(registerErr)
+			if registerErr == nil {
+				var entry any
+				var readErr error
+				if failure == "read" {
+					readErr = unavailable
+				}
+				if failure == "decode" {
+					entry = &chartInspectionMetadata{Data: json.RawMessage(`"invalid metadata"`)}
+				}
+				shared.On("Get", mock.Anything, mock.Anything, mock.Anything).Return(entry, readErr)
+				shared.On("Set", mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(unavailable)
+			}
+			calls := 0
+			inspector := NewInspector(func(context.Context, Selection, string) ([]byte, error) {
+				calls++
+				return archive, nil
+			}, 0)
+			for n := 0; n < 2; n++ {
+				result, err := inspector.Inspect(context.Background(), ngcCacheSelection(), "tenant", "")
+				Expect(err).NotTo(HaveOccurred())
+				Expect(result.ChartName).To(Equal(fixtureChartName))
+			}
+			Expect(calls).To(Equal(2))
+		}
+	})
+
+	It("rechecks a miss before downloading without refreshing a cached entry's TTL", func() {
+		parsed, err := ParseArchive(cacheChart())
+		Expect(err).NotTo(HaveOccurred())
+		encoded, marshalErr := json.Marshal(parsed)
+		Expect(marshalErr).NotTo(HaveOccurred())
+		shared := mockInspectionCache(nil)
+		shared.On("Get", mock.Anything, mock.Anything, mock.Anything).Return(nil, nil).Once()
+		shared.On("Get", mock.Anything, mock.Anything, mock.Anything).
+			Return(&chartInspectionMetadata{Data: encoded}, nil).Once()
+		called := false
+		inspector := NewInspector(func(context.Context, Selection, string) ([]byte, error) {
+			called = true
+			return nil, errors.New("unexpected download")
+		}, 0)
+		result, err := inspector.Inspect(context.Background(), ngcCacheSelection(), "tenant", "")
+		Expect(err).NotTo(HaveOccurred())
+		Expect(result.ChartName).To(Equal(fixtureChartName))
+		Expect(called).To(BeFalse())
+		shared.AssertNotCalled(GinkgoT(), "Set", mock.Anything, mock.Anything, mock.Anything, mock.Anything)
+	})
+
+	It("keeps unrelated inspection and cancellation responsive during a blocked cache write", func() {
+		archive := cacheChart()
+		shared := mockInspectionCache(nil)
+		shared.On("Get", mock.Anything, mock.Anything, mock.Anything).Return(nil, nil)
+		started := make(chan struct{})
+		shared.On("Set", mock.Anything, mock.Anything, mock.Anything, mock.Anything).
+			Run(func(args mock.Arguments) {
+				close(started)
+				<-args.Get(0).(context.Context).Done()
+			}).Return(context.Canceled).Once()
+		inspector := NewInspector(func(context.Context, Selection, string) ([]byte, error) {
+			return archive, nil
+		}, 0)
+		ctx, cancel := context.WithCancel(context.Background())
+		DeferCleanup(cancel)
+		done := make(chan *api.Error, 1)
+		go func() {
+			_, err := inspector.Inspect(ctx, ngcCacheSelection(), "tenant", "")
+			done <- err
+		}()
+		Eventually(started, time.Second).Should(BeClosed())
+		other := make(chan *api.Error, 1)
+		go func() {
+			_, err := inspector.Inspect(context.Background(), Selection{ChartID: fixtureUploadID}, "tenant", "")
+			other <- err
+		}()
+		Eventually(other, 500*time.Millisecond).Should(Receive(BeNil()))
+		cancel()
+		var cancelled *api.Error
+		Eventually(done, 500*time.Millisecond).Should(Receive(&cancelled))
+		Expect(cancelled.Code).To(BeNumerically("==", http.StatusRequestTimeout))
+		Eventually(func() int {
+			inspector.mu.Lock()
+			defer inspector.mu.Unlock()
+			return inspector.active
+		}, time.Second).Should(BeZero())
+	})
+
 	It("returns API errors while preserving status and hiding private callback diagnostics", func() {
 		public := api.NewError(http.StatusForbidden, "chart access denied", nil)
 		for _, tc := range []struct {
@@ -148,32 +280,43 @@ var _ = Describe("Inspection cache and admission", func() {
 					Expect(calls != 2 || after.ArchiveSHA256 == before.ArchiveSHA256).To(BeFalse(),
 						"fresh source returned cached metadata",
 					)
-					Expect(len(inspector.entries)).To(Equal(0), "fresh source populated cache")
+					entry, cacheErr := cache.Get[chartInspectionMetadata](context.Background(), inspector.key(tc.selection, "tenant:caller", ""))
+					Expect(cacheErr).NotTo(HaveOccurred())
+					Expect(entry).To(BeNil(), "fresh source populated cache")
 				}
 			}
 		}
 	})
-	It("Inspector Default NGC Cache Expires After Ten Minutes", func() {
+	It("registers a ten-minute metadata store with CP cache size limits", func() {
+		cachetesting.DisableCache()
+		shared := cachetesting.SetMock(GinkgoT())
+		shared.On("Close").Return(nil)
+		shared.On("RegisterStore", cachetesting.KeyFromType[chartInspectionMetadata](), mock.Anything,
+			mock.Anything, mock.Anything, mock.Anything).Run(func(args mock.Arguments) {
+			opts := options.NewStoreOptions(args.Get(2).(options.Option), args.Get(3).(options.Option), args.Get(4).(options.Option))
+			Expect(opts.Ttl).To(Equal(10 * time.Minute))
+			Expect(opts.MaxStoreSizeMB).To(Equal(20))
+			Expect(opts.MaxRecordSizeKB).To(Equal(4096))
+		}).Return(nil).Once()
+		NewInspector(nil, 0)
+	})
+	It("expires metadata through the shared CP cache", func() {
 		archive := cacheChart()
 		calls := 0
-		inspector := NewInspector(func(context.Context, Selection, string) ([]byte, error) { calls++; return archive, nil }, 0)
-		now := time.Unix(100, 0)
-		inspector.now = func() time.Time { return now }
-		for _, second := range []int{0, 60, 599, 600} {
-			now = time.Unix(100+int64(second), 0)
-			{
-				_, err := inspector.Inspect(context.Background(), ngcCacheSelection(), "tenant:caller", "")
-				Expect(err).NotTo(HaveOccurred())
-			}
-
-			want := 1
-			if second == 600 {
-				want = 2
-			}
-			Expect(calls).To(Equal(want), func() string {
-				return fmt.Sprintf("at %ds: acquisitions=%d, want=%d", second, calls, want)
-			})
+		inspector := NewInspector(func(context.Context, Selection, string) ([]byte, error) {
+			calls++
+			return archive, nil
+		}, 100*time.Millisecond)
+		for n := 0; n < 2; n++ {
+			_, err := inspector.Inspect(context.Background(), ngcCacheSelection(), "tenant", "")
+			Expect(err).NotTo(HaveOccurred())
 		}
+		Expect(calls).To(Equal(1))
+		Eventually(func() int {
+			_, err := inspector.Inspect(context.Background(), ngcCacheSelection(), "tenant", "")
+			Expect(err).NotTo(HaveOccurred())
+			return calls
+		}, time.Second, 20*time.Millisecond).Should(Equal(2))
 	})
 	It("Inspector Fresh Requests Do Not Share An Acquisition", func() {
 		archive := cacheChart()
@@ -209,12 +352,10 @@ var _ = Describe("Inspection cache and admission", func() {
 			}
 		}
 	})
-	It("Inspector Cache Expiry Isolation And Mutation", func() {
+	It("Inspector Cache Isolation Mutation And Invalidation", func() {
 		archive := cacheChart()
 		var calls atomic.Int32
 		inspector := NewInspector(func(context.Context, Selection, string) ([]byte, error) { calls.Add(1); return archive, nil }, time.Minute)
-		now := time.Unix(100, 0)
-		inspector.now = func() time.Time { return now }
 		selection := ngcCacheSelection()
 		first, err := inspector.Inspect(context.Background(), selection, "tenant1:caller1", "key1")
 		Expect(err).NotTo(HaveOccurred())
@@ -244,22 +385,21 @@ var _ = Describe("Inspection cache and admission", func() {
 			return fmt.Sprintf("identity/rotation isolation failed: %d", calls.Load())
 		})
 
-		now = now.Add(time.Minute)
+		Expect(cache.ClearStore[chartInspectionMetadata]()).To(Succeed())
 		{
 			_, err := inspector.Inspect(context.Background(), selection, "tenant1:caller1", "key1")
 			Expect(err).NotTo(HaveOccurred())
 		}
 		Expect(calls.Load()).To(BeNumerically("==", 5), func() string {
-			return fmt.Sprintf("expired hit: %d", calls.Load())
+			return fmt.Sprintf("invalidated hit: %d", calls.Load())
 		})
 
-		inspector.mu.Lock()
-		defer inspector.mu.Unlock()
-		for key := range inspector.entries {
-			Expect(strings.Contains(key, "key1") || strings.Contains(key, "rotated-key")).To(BeFalse(),
-				"plaintext key cached",
-			)
-		}
+		key := inspector.key(selection, "tenant1:caller1", "key1")
+		Expect(key).NotTo(ContainSubstring("key1"))
+		entry, cacheErr := cache.Get[chartInspectionMetadata](context.Background(), key)
+		Expect(cacheErr).NotTo(HaveOccurred())
+		Expect(entry).NotTo(BeNil())
+		Expect(string(entry.Data)).NotTo(ContainSubstring("key1"))
 	})
 	It("Inspector Preserves Integer Defaults Across Cache Hits", func() {
 		archive := chartArchive(
@@ -440,7 +580,7 @@ var _ = Describe("Inspection cache and admission", func() {
 			Expect(err).NotTo(BeNil(), "wrong package identity accepted")
 		}
 	})
-	It("Inspector Bounds Active And Cached Work", func() {
+	It("Inspector Bounds Active Work", func() {
 		archive := cacheChart()
 		release := make(chan struct{})
 		started := make(chan struct{}, 4)
@@ -471,34 +611,6 @@ var _ = Describe("Inspection cache and admission", func() {
 
 		close(release)
 		wg.Wait()
-		inspector.maxEntries = 2
-		inspector.fetch = func(context.Context, Selection, string) ([]byte, error) { return archive, nil }
-		for _, id := range []string{"x", "y", "z"} {
-			selection := ngcCacheSelection()
-			selection.Repo += "/" + id
-			{
-				_, err := inspector.Inspect(context.Background(), selection, "tenant", "")
-				Expect(err).NotTo(HaveOccurred())
-			}
-		}
-		inspector.mu.Lock()
-		count := len(inspector.entries)
-		inspector.mu.Unlock()
-		Expect(count).To(Equal(2), func() string {
-			return fmt.Sprintf("unbounded entries %d", count)
-		})
-
-		inspector.maxRecordBytes = 1
-		{
-			_, err := inspector.Inspect(context.Background(), ngcCacheSelection(), "tenant", "")
-			Expect(err).NotTo(HaveOccurred())
-		}
-
-		inspector.mu.Lock()
-		defer inspector.mu.Unlock()
-		Expect(inspector.cachedBytes > inspector.maxCacheBytes).To(BeFalse(),
-			"unbounded cached bytes",
-		)
 	})
 	It("Inspector Rejects Identity Mismatch Without Caching", func() {
 		wrong, correct := cacheChart(), cacheChartMetadata(fixtureChartName, "2")
@@ -548,33 +660,29 @@ var _ = Describe("Inspection cache and admission", func() {
 		Expect(calls).To(Equal(2), func() string {
 			return fmt.Sprintf("upload was cached: %d", calls)
 		})
-		Expect(len(inspector.entries)).To(Equal(0), "upload populated cache")
+		entry, cacheErr := cache.Get[chartInspectionMetadata](context.Background(), inspector.key(Selection{ChartID: fixtureUploadID}, "tenant", ""))
+		Expect(cacheErr).NotTo(HaveOccurred())
+		Expect(entry).To(BeNil(), "upload populated cache")
 	})
-	It("Inspector Serves NGC api.AiApplicationChartInspectionResponse Exceeding Cache Budgets", func() {
-		archive := cacheChart()
-		for _, budget := range []string{"record", "total"} {
-			{
-				By(budget)
-				calls := 0
-				inspector := NewInspector(func(context.Context, Selection, string) ([]byte, error) {
-					calls++
-					return archive, nil
-				}, 0)
-				if budget == "record" {
-					inspector.maxRecordBytes = 1
-				} else {
-					inspector.maxCacheBytes = 1
-				}
-				for n := 0; n < 2; n++ {
-					result, err := inspector.Inspect(context.Background(), ngcCacheSelection(), "tenant", "")
-					Expect(err != nil || result.ChartName != fixtureChartName).To(BeFalse(), func() string {
-						return fmt.Sprintf("uncacheable result lost: %+v %v", result, err)
-					})
-				}
-				Expect(calls != 2 || len(inspector.entries) != 0).To(BeFalse(), func() string {
-					return fmt.Sprintf("cache %s budget ignored: acquisitions=%d entries=%d", budget, calls, len(inspector.entries))
-				})
-			}
+	It("serves metadata rejected by the shared cache record limit", func() {
+		archive := chartArchive(
+			archiveEntry{name: "app/Chart.yaml", body: "name: app\nversion: '1'\n"},
+			archiveEntry{name: "app/questions.yaml", body: "questions:\n- variable: description\n  label: Description\n  type: string\n  default: " + strings.Repeat("x", 2048) + "\n"},
+		)
+		calls := 0
+		inspector := NewInspector(func(context.Context, Selection, string) ([]byte, error) {
+			calls++
+			return archive, nil
+		}, 0)
+		Expect(cache.RegisterStore[chartInspectionMetadata](options.MaxRecordSizeKB(1))).To(Succeed())
+		for n := 0; n < 2; n++ {
+			result, err := inspector.Inspect(context.Background(), ngcCacheSelection(), "tenant", "")
+			Expect(err).NotTo(HaveOccurred())
+			Expect(result.ChartName).To(Equal(fixtureChartName))
 		}
+		Expect(calls).To(Equal(2))
+		entry, err := cache.Get[chartInspectionMetadata](context.Background(), inspector.key(ngcCacheSelection(), "tenant", ""))
+		Expect(err).NotTo(HaveOccurred())
+		Expect(entry).To(BeNil())
 	})
 })

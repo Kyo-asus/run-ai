@@ -22,11 +22,14 @@ import (
 	"github.com/dsx-ai-factory/run-ai/control-plane/workloads/internal/generated/pkg/api"
 	chartinspection "github.com/dsx-ai-factory/run-ai/control-plane/workloads/pkg/chart_inspection"
 	"github.com/dsx-ai-factory/run-ai/control-plane/workloads/pkg/config"
+	cachetesting "github.com/dsx-ai-factory/run-ai/runai-common-packages/cache/v2/testing"
 	runaiconfig "github.com/dsx-ai-factory/run-ai/runai-common-packages/config"
 	"github.com/google/uuid"
 )
 
 func TestChartInspectionRouteReauthorizesWarmResultsThroughRealClients(t *testing.T) {
+	cachetesting.EnableCache()
+	t.Cleanup(cachetesting.DisableCache)
 	var allowApplication, allowCredential atomic.Bool
 	allowApplication.Store(true)
 	allowCredential.Store(true)

@@ -20,23 +20,28 @@ import (
 	"time"
 
 	"github.com/dsx-ai-factory/run-ai/control-plane/workloads/internal/generated/pkg/api"
+	"github.com/dsx-ai-factory/run-ai/runai-common-packages/cache/v2"
+	"github.com/dsx-ai-factory/run-ai/runai-common-packages/cache/v2/options"
+	"github.com/dsx-ai-factory/run-ai/runai-common-packages/logging"
+	"github.com/dsx-ai-factory/run-ai/runai-common-packages/runaictx"
 )
 
 const (
 	inspectionParserVersion  = "questions-v2"
 	cacheSaltBytes           = sha256.Size
-	defaultMaxCacheBytes     = 20 << 20
-	defaultMaxRecordBytes    = 4 << 20
-	defaultMaxCacheEntries   = 128
+	defaultMaxCacheSizeMB    = 20
+	defaultMaxRecordSizeKB   = 4096
+	cacheAccessTimeout       = time.Second
 	maxConcurrentInspections = 4
 )
 
 // DefaultCacheTTL applies only to exact-version HTTPS NGC repository selections.
 const DefaultCacheTTL = 10 * time.Minute
 
-type cacheEntry struct {
-	data    []byte
-	expires time.Time
+// Keep metadata encoded through the shared cache's JSON round trip; decoding
+// generic question defaults there would turn integers into float64 values.
+type chartInspectionMetadata struct {
+	Data json.RawMessage `json:"data"`
 }
 
 // inspectionFlight tracks one acquisition and its result. Eligible NGC requests
@@ -55,20 +60,14 @@ type inspectionFlight struct {
 type Inspector struct {
 	mu               sync.Mutex
 	fetch            FetchFunc
-	ttl              time.Duration
-	now              func() time.Time
+	cacheReady       bool
 	salt             [cacheSaltBytes]byte
-	entries          map[string]cacheEntry
 	flights          map[string]*inspectionFlight
 	active           int
-	cachedBytes      int
-	maxCacheBytes    int
-	maxRecordBytes   int
-	maxEntries       int
 	uncachedSequence uint64
 }
 
-// NewInspector creates a metadata cache with at most four concurrent acquisitions.
+// NewInspector registers CP metadata storage and allows at most four concurrent acquisitions.
 // A nil fetcher uses FetchRemote; a nonpositive TTL uses DefaultCacheTTL.
 func NewInspector(fetch FetchFunc, ttl time.Duration) *Inspector {
 	if fetch == nil {
@@ -77,15 +76,18 @@ func NewInspector(fetch FetchFunc, ttl time.Duration) *Inspector {
 	if ttl <= 0 {
 		ttl = DefaultCacheTTL
 	}
+	cacheErr := cache.RegisterStore[chartInspectionMetadata](
+		options.Ttl(ttl),
+		options.MaxStoreSizeMB(defaultMaxCacheSizeMB),
+		options.MaxRecordSizeKB(defaultMaxRecordSizeKB),
+	)
+	if cacheErr != nil {
+		logging.Warnf("Failed to register chart inspection cache; inspections will run uncached")
+	}
 	inspector := &Inspector{
-		fetch:          fetch,
-		ttl:            ttl,
-		now:            time.Now,
-		entries:        make(map[string]cacheEntry),
-		flights:        make(map[string]*inspectionFlight),
-		maxCacheBytes:  defaultMaxCacheBytes,
-		maxRecordBytes: defaultMaxRecordBytes,
-		maxEntries:     defaultMaxCacheEntries,
+		fetch:      fetch,
+		cacheReady: cacheErr == nil,
+		flights:    make(map[string]*inspectionFlight),
 	}
 	if _, err := rand.Read(inspector.salt[:]); err != nil {
 		panic(fmt.Sprintf("initialize chart inspection cache: %v", err))
@@ -119,20 +121,19 @@ func (i *Inspector) InspectWithFetch(ctx context.Context, selection Selection, s
 	key := ""
 	if cacheable {
 		key = i.key(selection, scope, credential)
+		result := i.cachedMetadata(ctx, key)
+		if err := ctx.Err(); err != nil {
+			return nil, inspectionError(err)
+		}
+		if result != nil {
+			return result, nil
+		}
 	}
 	i.mu.Lock()
 	if !cacheable {
 		// Fresh sources must not reuse a cached result or another request's acquisition.
 		i.uncachedSequence++
 		key = fmt.Sprintf("uncached:%d", i.uncachedSequence)
-	}
-	if entry, ok := i.entries[key]; ok {
-		if i.now().Before(entry.expires) {
-			data := entry.data
-			i.mu.Unlock()
-			return decodeResult(data)
-		}
-		i.deleteEntry(key)
 	}
 	flight := i.flights[key]
 	if flight == nil {
@@ -187,11 +188,20 @@ func (i *Inspector) releaseWaiter(key string, flight *inspectionFlight) {
 // Only successful metadata still needed by a live waiter is eligible for caching.
 func (i *Inspector) run(ctx context.Context, key string, flight *inspectionFlight, selection Selection, credential string, fetch FetchFunc, cacheable bool) {
 	defer flight.cancel()
-	data, fetchErr := fetch(ctx, selection, credential)
-	err := inspectionError(fetchErr)
 	var result *api.AiApplicationChartInspectionResponse
-	if err == nil {
-		result, err = ParseArchive(data)
+	if cacheable {
+		// Close the gap between a caller's cache miss and acquiring its flight:
+		// another flight may have populated the cache and completed meanwhile.
+		result = i.cachedMetadata(ctx, key)
+	}
+	fromCache := result != nil
+	var err *api.Error
+	if !fromCache {
+		data, fetchErr := fetch(ctx, selection, credential)
+		err = inspectionError(fetchErr)
+		if err == nil {
+			result, err = ParseArchive(data)
+		}
 	}
 	if err == nil && result == nil {
 		err = api.NewError(http.StatusInternalServerError, "chart inspection returned no result", nil)
@@ -207,12 +217,18 @@ func (i *Inspector) run(ctx context.Context, key string, flight *inspectionFligh
 			err = api.NewError(http.StatusInternalServerError, "chart inspection metadata could not be encoded", nil)
 		}
 	}
+	// Cache I/O must not hold the coordination lock. Losing the last waiter
+	// cancels ctx, including any pending write; cache failures do not fail inspection.
+	if cacheable && !fromCache && err == nil && ctx.Err() == nil && i.cacheReady {
+		cacheCtx, cancel := context.WithTimeout(ctx, cacheAccessTimeout)
+		if cacheErr := cache.Set(cacheCtx, key, chartInspectionMetadata{Data: encoded}); cacheErr != nil {
+			logging.WithCtx(runaictx.LoggerHook(ctx)).Warnf("Failed to cache chart inspection metadata; returning uncached result")
+		}
+		cancel()
+	}
 	i.mu.Lock()
 	defer i.mu.Unlock()
 	flight.data, flight.err = encoded, err
-	if cacheable && err == nil && flight.waiters > 0 && ctx.Err() == nil {
-		i.put(key, encoded)
-	}
 	if i.flights[key] == flight {
 		delete(i.flights, key)
 	}
@@ -266,39 +282,25 @@ func (i *Inspector) key(selection Selection, scope, credential string) string {
 	return hex.EncodeToString(digest[:])
 }
 
-func (i *Inspector) deleteEntry(key string) {
-	entry := i.entries[key]
-	i.cachedBytes -= len(entry.data)
-	delete(i.entries, key)
-}
-
-// Called with the cache mutex held. Eviction uses expiration order; records contain immutable JSON only.
-func (i *Inspector) put(key string, data []byte) {
-	if len(data) > i.maxRecordBytes || len(data) > i.maxCacheBytes || i.maxEntries < 1 {
-		return
+// Cache availability must not become a prerequisite for inspecting a chart.
+func (i *Inspector) cachedMetadata(ctx context.Context, key string) *api.AiApplicationChartInspectionResponse {
+	if !i.cacheReady {
+		return nil
 	}
-	now := i.now()
-	for key, entry := range i.entries {
-		if !now.Before(entry.expires) {
-			i.deleteEntry(key)
-		}
+	cacheCtx, cancel := context.WithTimeout(ctx, cacheAccessTimeout)
+	defer cancel()
+	entry, err := cache.Get[chartInspectionMetadata](cacheCtx, key)
+	if err != nil {
+		logging.WithCtx(runaictx.LoggerHook(ctx)).Warnf("Failed to read chart inspection cache; inspecting source instead")
+		return nil
 	}
-	if _, ok := i.entries[key]; ok {
-		i.deleteEntry(key)
+	if entry == nil {
+		return nil
 	}
-	for len(i.entries) >= i.maxEntries || i.cachedBytes+len(data) > i.maxCacheBytes {
-		oldestKey := ""
-		var oldest time.Time
-		for candidate, entry := range i.entries {
-			if oldestKey == "" || entry.expires.Before(oldest) {
-				oldestKey, oldest = candidate, entry.expires
-			}
-		}
-		if oldestKey == "" {
-			return
-		}
-		i.deleteEntry(oldestKey)
+	result, apiErr := decodeResult(entry.Data)
+	if apiErr != nil {
+		logging.WithCtx(runaictx.LoggerHook(ctx)).Warnf("Invalid chart inspection cache entry; inspecting source instead")
+		return nil
 	}
-	i.entries[key] = cacheEntry{data: data, expires: now.Add(i.ttl)}
-	i.cachedBytes += len(data)
+	return result
 }
