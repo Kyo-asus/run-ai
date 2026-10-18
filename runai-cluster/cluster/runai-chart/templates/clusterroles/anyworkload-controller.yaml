@@ -3,9 +3,6 @@ kind: ClusterRole
 metadata:
   name: runai-anyworkload-controller-project
 rules:
-  - apiGroups: [inference.platform.run.ai]
-    resources: [inferenceendpoints]
-    verbs: [get, create, update, patch, delete]
   - apiGroups:
       - run.ai
     resources:
@@ -76,6 +73,10 @@ rules:
       - httproutes
     verbs:
       - delete
+  - apiGroups: [inference.platform.run.ai]
+    resources: [inferenceendpoints]
+    verbs: [get, create, update, patch, delete]
+
 ---
 # Run:AI AnyworkloadController
 apiVersion: rbac.authorization.k8s.io/v1
@@ -83,9 +84,6 @@ kind: ClusterRole
 metadata:
   name: runai-anyworkload-controller
 rules:
-  - apiGroups: [inference.platform.run.ai]
-    resources: [inferenceendpoints]
-    verbs: [get, list, watch]
   - apiGroups:
       - ""
     resources:
@@ -290,6 +288,10 @@ rules:
     verbs:
       - create
       - patch
+  - apiGroups: [inference.platform.run.ai]
+    resources: [inferenceendpoints]
+    verbs: [get, list, watch]
+
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: Role
