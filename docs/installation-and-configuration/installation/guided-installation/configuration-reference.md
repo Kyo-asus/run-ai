@@ -472,7 +472,7 @@ A standard air-gapped bundle needs only the `settings` section. `imageOverrides`
 | `imageOverrides[].group` | string | Conditional | Image group the override applies to. Required only when `name` exists in more than one group. |
 | `imageOverrides[].name` | string | Yes (per entry) | Name of the image to override. |
 | `imageOverrides[].source` | string | Yes (per entry) | Full image reference to pull instead, including an explicit tag or digest. |
-| `registryAuth` | list | No | Credentials for registries referenced by `imageOverrides` sources, or for a Support-Entitled Release's own registry. Each entry authenticates to one registry. For a Gov-ready installation, add an entry for `docker.io` with your Docker Hub credentials - see [Gov-Ready Third-Party Services](../../system-requirements/gov-ready-third-party-services.md). |
+| `registryAuth` | list | No | Credentials for registries referenced by `imageOverrides` sources. Each entry authenticates to one registry. For a Gov-ready installation, add an entry for `docker.io` with your Docker Hub credentials - see [Gov-Ready Third-Party Services](../../system-requirements/gov-ready-third-party-services.md). |
 | `registryAuth[].registry` | string | Yes (per entry) | Registry hostname this entry authenticates to. |
 | `registryAuth[].username` / `password` / `passwordPath` / `passwordEnv` | string | No | Basic authentication. `password`, `passwordPath`, and `passwordEnv` are mutually exclusive. |
 | `registryAuth[].token` / `tokenPath` / `tokenEnv` | string | No | Token authentication. Mutually exclusive with each other. |

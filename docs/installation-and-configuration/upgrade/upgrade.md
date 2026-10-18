@@ -277,7 +277,6 @@ The `bootstrapToken` in the generated Helm command is a short-lived token that e
       --set controlPlane.bootstrapToken=... \
       --set cluster.uid=... \
       --set cluster.url=... --create-namespace \
-      --set global.customCA.enabled=true \
       --set clusterConfig.global.ingress.ingressClass=haproxy \
       -f <VALUES_DIR>/cluster-airgap-values.yaml
     ```
