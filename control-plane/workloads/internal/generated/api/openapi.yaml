@@ -283,6 +283,15 @@ paths:
               schema:
                 $ref: '#/components/schemas/Error'
           description: Bad request.
+        "412":
+          content:
+            application/json:
+              example:
+                code: 412
+                message: Precondition failed
+              schema:
+                $ref: '#/components/schemas/Error'
+          description: The specified resource was not found.
         "500":
           content:
             application/json:
@@ -14445,6 +14454,15 @@ components:
           schema:
             $ref: '#/components/schemas/Error'
       description: The specified resource already exists
+    "412PreconditionFailed":
+      content:
+        application/json:
+          example:
+            code: 412
+            message: Precondition failed
+          schema:
+            $ref: '#/components/schemas/Error'
+      description: The specified resource was not found.
     "204NoContent":
       description: No Content.
     "400SubmissionErrorV2":
@@ -14482,15 +14500,6 @@ components:
           schema:
             $ref: '#/components/schemas/Error'
       description: Not acceptable request
-    "412PreconditionFailed":
-      content:
-        application/json:
-          example:
-            code: 412
-            message: Precondition failed
-          schema:
-            $ref: '#/components/schemas/Error'
-      description: The specified resource was not found.
     "413RequestEntityTooLarge":
       content:
         application/json:

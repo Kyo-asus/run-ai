@@ -226,6 +226,9 @@
           "400": {
             "$ref": "#/components/responses/400BadRequest"
           },
+          "412": {
+            "$ref": "#/components/responses/412PreconditionFailed"
+          },
           "500": {
             "$ref": "#/components/responses/500InternalServerError"
           },
@@ -25420,6 +25423,20 @@
           }
         }
       },
+      "412PreconditionFailed": {
+        "description": "The specified resource was not found.",
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/Error"
+            },
+            "example": {
+              "code": 412,
+              "message": "Precondition failed"
+            }
+          }
+        }
+      },
       "204NoContent": {
         "description": "No Content."
       },
@@ -25471,20 +25488,6 @@
           "application/json": {
             "schema": {
               "$ref": "#/components/schemas/Error"
-            }
-          }
-        }
-      },
-      "412PreconditionFailed": {
-        "description": "The specified resource was not found.",
-        "content": {
-          "application/json": {
-            "schema": {
-              "$ref": "#/components/schemas/Error"
-            },
-            "example": {
-              "code": 412,
-              "message": "Precondition failed"
             }
           }
         }

@@ -17921,6 +17921,8 @@ paths:
           description: Actions stored successfully.
         '400':
           $ref: '#/components/responses/400BadRequest'
+        '412':
+          $ref: '#/components/responses/412PreconditionFailed'
         '500':
           $ref: '#/components/responses/500InternalServerError'
         '503':

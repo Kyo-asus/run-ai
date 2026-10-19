@@ -74,6 +74,9 @@ func (s *WorkloadActionsAPIService) InternalCreateWorkloadActions(ctx context.Co
 	// TODO: Uncomment the next line to return response Response(400, Error{}) or use other options such as http.Ok ...
 	// return Response(400, Error{}), nil
 
+	// TODO: Uncomment the next line to return response Response(412, Error{}) or use other options such as http.Ok ...
+	// return Response(412, Error{}), nil
+
 	// TODO: Uncomment the next line to return response Response(500, Error{}) or use other options such as http.Ok ...
 	// return Response(500, Error{}), nil
 

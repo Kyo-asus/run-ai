@@ -149,6 +149,8 @@ paths:
           description: Actions stored successfully.
         '400':
           $ref: '#/components/responses/400BadRequest'
+        '412':
+          $ref: '#/components/responses/412PreconditionFailed'
         '500':
           $ref: '#/components/responses/500InternalServerError'
         '503':
@@ -17235,6 +17237,15 @@ components:
           example:
             code: 409
             message: Resource with this name already exists
+    412PreconditionFailed:
+      description: The specified resource was not found.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+          example:
+            code: 412
+            message: Precondition failed
     204NoContent:
       description: No Content.
     400SubmissionErrorV2:
@@ -17270,15 +17281,6 @@ components:
         application/json:
           schema:
             $ref: '#/components/schemas/Error'
-    412PreconditionFailed:
-      description: The specified resource was not found.
-      content:
-        application/json:
-          schema:
-            $ref: '#/components/schemas/Error'
-          example:
-            code: 412
-            message: Precondition failed
     413RequestEntityTooLarge:
       description: Request entity too large
       content:
