@@ -36,7 +36,8 @@ func DbInsertWorkloadActions(ctx context.Context, records []models.WorkloadActio
 	return nil
 }
 
-// Wait for workload registration so the orphan cleaner cannot remove actions delivered first.
+// Check that all workload rows exist so the cleaner does not remove their history.
+// If any row is missing, return an error without inserting; the caller can retry or stop.
 func DbInsertRegisteredWorkloadActions(ctx context.Context, records []models.WorkloadActionHistory) *api.Error {
 	if len(records) == 0 {
 		return nil
