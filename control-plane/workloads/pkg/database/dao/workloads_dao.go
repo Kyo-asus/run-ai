@@ -119,8 +119,9 @@ func (w *WorkloadsDao) DbUpsertWorkload(ctx context.Context, workload models.Wor
 
 // DbUpsertWorkloadFull upserts a workload, its children, and its elements in a single transaction.
 // This avoids the overhead of 3 separate transactions (each with its own COMMIT + WAL fsync).
+// It reports false, and writes nothing, when the workload has already been soft deleted.
 func (w *WorkloadsDao) DbUpsertWorkloadFull(ctx context.Context, tenantID uint, clusterID string,
-	workload models.Workload, children []models.WorkloadChild, elements []models.WorkloadElement) *api.Error {
+	workload models.Workload, children []models.WorkloadChild, elements []models.WorkloadElement) (bool, *api.Error) {
 	dbErr := api.NewError(http.StatusInternalServerError, fmt.Sprintf("Failed to upsert workload %s", workload.Name), nil)
 
 	tx := runaidb.DB().WithContext(ctx).Begin()
@@ -128,15 +129,22 @@ func (w *WorkloadsDao) DbUpsertWorkloadFull(ctx context.Context, tenantID uint, 
 	defer orm.FinalizeTransaction(tx, &committed)
 
 	// 1. Upsert the workload row
-	query := tx.Table(WorkloadsTableName)
-	query = omitWorkloadsEmptyStaticFields(query, workload)
-	if _, saveErr := query.Save(&workload); saveErr != nil {
+	upserted, saveErr := upsertWorkloadUnlessDeleted(tx, tenantID, workload)
+	if saveErr != nil {
 		logging.WithCtx(runaictx.LoggerHook(ctx)).Errorf("Failed to save workload %s, err %v", workload.Name, saveErr)
-		return dbErr.WithDetails(saveErr)
+		return false, dbErr.WithDetails(saveErr)
+	}
+	if !upserted {
+		if commitErr := tx.Commit(); commitErr != nil {
+			logging.WithCtx(runaictx.LoggerHook(ctx)).Errorf("Failed to commit workload upsert for %s: %v", workload.Name, commitErr)
+			return false, dbErr.WithDetails(commitErr)
+		}
+		committed = true
+		return false, nil
 	}
 	if resetErr := resetSupportSuspendOfV1Workloads(tx, tenantID, notSuspendableIds(workload)); resetErr != nil {
 		logging.WithCtx(runaictx.LoggerHook(ctx)).Errorf("Failed to reset support_suspend of workload %s: %v", workload.Name, resetErr)
-		return dbErr.WithDetails(resetErr)
+		return false, dbErr.WithDetails(resetErr)
 	}
 
 	// 2. Upsert children
@@ -171,11 +179,11 @@ func (w *WorkloadsDao) DbUpsertWorkloadFull(ctx context.Context, tenantID uint, 
 	commitErr := tx.Commit()
 	if commitErr != nil {
 		logging.WithCtx(runaictx.LoggerHook(ctx)).Errorf("Failed to commit workload upsert for %s: %v", workload.Name, commitErr)
-		return dbErr.WithDetails(commitErr)
+		return false, dbErr.WithDetails(commitErr)
 	}
 	committed = true
 
-	return err
+	return true, err
 }
 
 // DbUpdateWorkloadPhase updateOnlyIfLastUpdateSmallerThan will update the phase if and only if the incoming request is newer than what we currently has in the DB
@@ -207,6 +215,7 @@ func DbUpdateWorkloadPhaseWithResult(ctx context.Context, tenantId uint, workloa
 		Where("tenant_id = ?", tenantId).
 		Where("id = ?", workloadId).
 		Where("phase_updated_at < ?", updateOnlyIfLastUpdateSmallerThan).
+		Where("deleted_at IS NULL").
 		Updates(map[string]interface{}{"phase": workloadPhase.Phase, "phase_message": workloadPhase.PhaseMessage, "deleted_at": deletedAt})
 	if err != nil {
 		logging.WithCtx(runaictx.LoggerHook(ctx)).Errorf("Failed to update workload %s, err %v", workloadId, err)
@@ -732,6 +741,42 @@ func (w *WorkloadsDao) DbSyncWorkloads(
 	committed = true
 
 	return syncedWorkloads, failedWorkloads, deletedWorkloadIds, nil
+}
+
+// upsertWorkloadUnlessDeleted updates the live row of the workload, or inserts the workload when it has no row
+// yet. A soft-deleted workload is left untouched and reported as not upserted: a cluster update that raced with
+// the cluster's delete must not revive it. The update waits for a concurrent delete of the row to commit before
+// matching nothing, so the lookup that follows sees the deletion.
+func upsertWorkloadUnlessDeleted(tx orm.DB, tenantId uint, workload models.Workload) (bool, error) {
+	updated, err := omitWorkloadsEmptyStaticFields(tx.Table(WorkloadsTableName), workload).
+		Select("*").
+		Updates(&workload)
+	if err != nil {
+		return false, err
+	}
+	if updated > 0 {
+		return true, nil
+	}
+
+	var existing models.Workload
+	err = tx.Unscoped().Table(WorkloadsTableName).
+		Select(WorkloadsColumnId).
+		Where(fmt.Sprintf("%s = ?", WorkloadsColumnTenantId), tenantId).
+		Where(fmt.Sprintf("%s = ?", WorkloadsColumnId), workload.ID).
+		Take(&existing)
+	if err == nil {
+		return false, nil
+	}
+	if !errors.Is(err, orm.ErrRecordNotFound) {
+		return false, err
+	}
+
+	if _, err = omitWorkloadsEmptyStaticFields(tx.Table(WorkloadsTableName), workload).
+		Clauses(clause.OnConflict{Columns: []clause.Column{{Name: WorkloadsColumnId}}, DoNothing: true}).
+		Create(&workload); err != nil {
+		return false, err
+	}
+	return true, nil
 }
 
 // notSuspendableIds returns the workload's id when the cluster reports it as not suspendable, so single-row

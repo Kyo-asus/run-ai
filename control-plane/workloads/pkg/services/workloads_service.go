@@ -614,10 +614,16 @@ func (s *WorkloadsService) UpsertWorkload(ctx context.Context, workloadId string
 		return NewErrorResponse(api.NewError(http.StatusBadRequest, fmt.Sprintf("Workload <%s> is invalid", workloadSyncFields.Name), err)), nil
 	}
 
-	dbErr := s.WorkloadsDao.DbUpsertWorkloadFull(ctx, tenantId, workloadSyncFields.ClusterId, workloadModel, workloadChildrenModel, workloadElementModels)
+	upserted, dbErr := s.WorkloadsDao.DbUpsertWorkloadFull(ctx, tenantId, workloadSyncFields.ClusterId, workloadModel, workloadChildrenModel, workloadElementModels)
 	if dbErr != nil {
 		logging.WithCtx(runaictx.LoggerHook(ctx)).Errorf("Failed to sync workload <%s> in project <%s>. Err: %+v", workloadId, workloadSyncFields.ProjectId, dbErr)
 		return NewErrorResponse(dbErr), nil
+	}
+	if !upserted {
+		logging.WithCtx(runaictx.LoggerHook(ctx)).Infof(
+			"Skipped upsert of workload id: <%s> name: <%s> in project id: <%s>: the workload was already deleted",
+			workloadId, workloadSyncFields.Name, workloadSyncFields.ProjectId)
+		return NoContentResponse(), nil
 	}
 
 	logging.WithCtx(runaictx.LoggerHook(ctx)).Infof(

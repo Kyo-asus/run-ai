@@ -590,16 +590,17 @@ var _ = Describe("Workloads API tests", Ordered, func() {
 
 	Context("Upsert", func() {
 		It("Insert", func() {
-			baseWorkload := SetupBaseWorkload(testing.TestUuid4, DefaultProjectId, testing.ClusterUuid1)
+			workloadId := uuid.NewString()
+			baseWorkload := SetupBaseWorkload(workloadId, DefaultProjectId, testing.ClusterUuid1)
 
-			apiResponse, _ := workloadsService.UpsertWorkload(ctx, testing.TestUuid4, baseWorkload)
+			apiResponse, _ := workloadsService.UpsertWorkload(ctx, workloadId, baseWorkload)
 			Expect(apiResponse.Code).To(Equal(http.StatusNoContent))
 
-			apiResponse, _ = workloadsService.GetWorkload(ctx, testing.TestUuid4)
+			apiResponse, _ = workloadsService.GetWorkload(ctx, workloadId)
 			Expect(apiResponse.Code).To(Equal(http.StatusOK))
-			createdWorkloadsIds = append(createdWorkloadsIds, testing.TestUuid4)
+			createdWorkloadsIds = append(createdWorkloadsIds, workloadId)
 			workloadsResponse := httpResponseBodyToWorkloadResponse(apiResponse)
-			ValidateBaseWorkload(workloadsResponse, testing.TestUuid4, DefaultProjectId, testing.ClusterUuid1)
+			ValidateBaseWorkload(workloadsResponse, workloadId, DefaultProjectId, testing.ClusterUuid1)
 
 			Expect(workloadsResponse.ActionsSupport.Delete).To(Equal(true))
 			Expect(workloadsResponse.ActionsSupport.Suspend).To(Equal(true))
@@ -644,6 +645,26 @@ var _ = Describe("Workloads API tests", Ordered, func() {
 			Expect(apiResponse.Code).To(Equal(http.StatusOK))
 			workloadsResponse := httpResponseBodyToWorkloadResponse(apiResponse)
 			Expect(workloadsResponse.DeletedAt).ToNot(BeNil())
+		})
+
+		It("Late upsert does not revive a deleted workload", func() {
+			workloadId := uuid.NewString()
+			baseWorkload := SetupBaseWorkload(workloadId, DefaultProjectId, testing.ClusterUuid1)
+			apiResponse, _ := workloadsService.UpsertWorkload(ctx, workloadId, baseWorkload)
+			Expect(apiResponse.Code).To(Equal(http.StatusNoContent))
+
+			apiResponse, _ = workloadsService.DeleteWorkload(ctx, workloadId)
+			Expect(apiResponse.Code).To(Equal(http.StatusNoContent))
+
+			baseWorkload.Phase = api.PHASE_COMPLETED
+			apiResponse, _ = workloadsService.UpsertWorkload(ctx, workloadId, baseWorkload)
+			Expect(apiResponse.Code).To(Equal(http.StatusNoContent))
+
+			apiResponse, _ = workloadsService.GetWorkload(ctx, workloadId)
+			Expect(apiResponse.Code).To(Equal(http.StatusOK))
+			workloadsResponse := httpResponseBodyToWorkloadResponse(apiResponse)
+			Expect(workloadsResponse.DeletedAt).ToNot(BeNil())
+			Expect(workloadsResponse.Phase).To(Equal(DefaultPhase))
 		})
 
 		It("SubmittedBy tests", func() {

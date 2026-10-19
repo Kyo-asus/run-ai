@@ -999,6 +999,7 @@ var _ = Describe("AI applications API tests", Ordered, func() {
 		app4Id, _ := uuid.Parse("eea87015-19c3-4d03-b2b3-b632c5590e63")
 		app5Id, _ := uuid.Parse("eea87015-19c3-4d03-b2b3-b632c5590e64")
 		app6Id, _ := uuid.Parse("eea87015-19c3-4d03-b2b3-b632c5590e65")
+		var clusterApplications []api.AiApplicationForSync
 
 		BeforeAll(func() {
 			// Create 6 applications with different attributes for comprehensive testing
@@ -1077,9 +1078,10 @@ var _ = Describe("AI applications API tests", Ordered, func() {
 			}
 
 			// Sync applications to cluster1
+			clusterApplications = []api.AiApplicationForSync{application1, application2, application3, application4, application5}
 			syncResponse, err := aiApplicationsService.SyncApplications(ctx, clusterId.String(), api.AiApplicationsForSync{
 				FullSync:     false,
-				Applications: []api.AiApplicationForSync{application1, application2, application3, application4, application5},
+				Applications: clusterApplications,
 			})
 			Expect(err).To(BeNil())
 			Expect(syncResponse.Code).To(Equal(http.StatusNoContent))
@@ -1273,6 +1275,19 @@ var _ = Describe("AI applications API tests", Ordered, func() {
 						Action:       api.AIAPPLICATIONSYNCACTION_UPSERT,
 					},
 				},
+			})
+			Expect(err).To(BeNil())
+			Expect(syncResponse.Code).To(Equal(http.StatusNoContent))
+
+			countResponse, err = aiApplicationsService.CountApplications(ctx, []string{}, "")
+			Expect(err).To(BeNil())
+			Expect(countResponse.Code).To(Equal(http.StatusOK))
+			countAfterLateUpsert := countResponse.Body.(api.CountResponse).Count
+			Expect(countAfterLateUpsert).To(Equal(countBefore - 1))
+
+			syncResponse, err = aiApplicationsService.SyncApplications(ctx, clusterId.String(), api.AiApplicationsForSync{
+				FullSync:     true,
+				Applications: clusterApplications,
 			})
 			Expect(err).To(BeNil())
 			Expect(syncResponse.Code).To(Equal(http.StatusNoContent))

@@ -24,6 +24,8 @@ const (
 
 	applicationsSaveUpdate    = "UPDATE applications SET updated_at=?,deleted_at=?,updated_by=?,deleted_by=?,name=?,source=?,type=?,actual_phase=?,tenant_id=?,cluster_id=?,department_id=?,department_name=?,project_id=?,project_name=?,k8s_phase=?,resources=?,message=? WHERE applications.deleted_at IS NULL AND id = ?"
 	applicationsFallbackUpdte = "UPDATE applications SET k8s_phase=?,resources=?,updated_at=? WHERE id = ? AND tenant_id = ? AND cluster_id = ?"
+	applicationsRowLookup     = "SELECT id FROM applications WHERE tenant_id = ? AND id = ? LIMIT ?"
+	applicationsSyncInsert    = "INSERT INTO applications (id,updated_at,deleted_at,updated_by,deleted_by,name,source,type,actual_phase,tenant_id,cluster_id,department_id,department_name,project_id,project_name,k8s_phase,resources,message) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?) ON CONFLICT (id) DO NOTHING"
 	applicationsDelete        = "UPDATE applications SET deleted_at=? WHERE tenant_id = ? AND cluster_id = ? AND id in (?) AND applications.deleted_at IS NULL"
 	applicationsDeleteExcl    = "UPDATE applications SET deleted_at=? WHERE tenant_id = ? AND cluster_id = ? AND applications.deleted_at IS NULL"
 	applicationsDeleteExclIn  = "UPDATE applications SET deleted_at=? WHERE tenant_id = ? AND cluster_id = ? AND id not in (?) AND applications.deleted_at IS NULL"
@@ -101,6 +103,55 @@ var _ = Describe("SyncClusterApplications", func() {
 		Expect(err).ToNot(HaveOccurred())
 		Expect(synced).To(HaveLen(1))
 		Expect(failed).To(BeEmpty())
+	})
+
+	It("inserts an application that has no row yet", func() {
+		m := setupDaoMock(GinkgoT())
+		m.ExpectTransaction().Begin()
+		m.ExpectExec(applicationsSavepoint).Returns(0)
+		m.ExpectExec(applicationsSaveUpdate).Returns(0)
+		m.ExpectQuery(applicationsRowLookup).Returns([]applicationRow{})
+		m.ExpectExec(applicationsSyncInsert).Returns(1)
+		m.ExpectExec(applicationsSavepoint).Returns(0)
+		m.ExpectTransaction().Commit()
+
+		synced, failed, err := SyncClusterApplications(testCtx(1), "tenant-1", applicationsTestCluster, []models.Application{newTestApplication()}, nil, false)
+
+		Expect(err).ToNot(HaveOccurred())
+		Expect(synced).To(Equal([]string{applicationsTestId.String()}))
+		Expect(failed).To(BeEmpty())
+	})
+
+	It("leaves a soft-deleted application deleted on an incremental sync", func() {
+		m := setupDaoMock(GinkgoT())
+		m.ExpectTransaction().Begin()
+		m.ExpectExec(applicationsSavepoint).Returns(0)
+		m.ExpectExec(applicationsSaveUpdate).Returns(0)
+		m.ExpectQuery(applicationsRowLookup).Returns([]applicationRow{{ID: applicationsTestId}})
+		m.ExpectExec(applicationsSavepoint).Returns(0)
+		m.ExpectTransaction().Commit()
+
+		synced, failed, err := SyncClusterApplications(testCtx(1), "tenant-1", applicationsTestCluster, []models.Application{newTestApplication()}, nil, false)
+
+		Expect(err).ToNot(HaveOccurred())
+		Expect(synced).To(Equal([]string{applicationsTestId.String()}))
+		Expect(failed).To(BeEmpty())
+	})
+
+	It("reports the application as failed when the soft-deleted row lookup fails", func() {
+		m := setupDaoMock(GinkgoT())
+		m.ExpectTransaction().Begin()
+		m.ExpectExec(applicationsSavepoint).Returns(0)
+		m.ExpectExec(applicationsSaveUpdate).Returns(0)
+		m.ExpectQuery(applicationsRowLookup).ReturnsError(errors.New("boom"))
+		m.ExpectExec(applicationsRollbackTo).Returns(0)
+		m.ExpectTransaction().Commit()
+
+		synced, failed, err := SyncClusterApplications(testCtx(1), "tenant-1", applicationsTestCluster, []models.Application{newTestApplication()}, nil, false)
+
+		Expect(err).ToNot(HaveOccurred())
+		Expect(synced).To(BeEmpty())
+		Expect(failed).To(Equal([]string{applicationsTestId.String()}))
 	})
 
 	It("falls back to a partial update on a unique constraint violation", func() {

@@ -94,13 +94,14 @@ var _ = Describe("Workloads-Pods API advanced tests", Ordered, func() {
 			Expect(workloadResponse.CompletedAt).To(BeNil())
 		})
 		It("Workload multiple pods", func() {
-			baseWorkload := SetupBaseWorkload(testing.TestUuid1, DefaultProjectId, testing.ClusterUuid1)
-			apiResponse, _ := workloadsService.UpsertWorkload(ctx, testing.TestUuid1, baseWorkload)
+			uid := uuid.New().String()
+			baseWorkload := SetupBaseWorkload(uid, DefaultProjectId, testing.ClusterUuid1)
+			apiResponse, _ := workloadsService.UpsertWorkload(ctx, uid, baseWorkload)
 			Expect(apiResponse.Code).To(Equal(http.StatusNoContent))
-			createdWorkloadsIds = append(createdWorkloadsIds, testing.TestUuid1)
+			createdWorkloadsIds = append(createdWorkloadsIds, uid)
 
 			id1 := uuid.NewString()
-			basePod := SetupBasePod(id1, testing.TestUuid1, DefaultProjectId, testing.ClusterUuid1)
+			basePod := SetupBasePod(id1, uid, DefaultProjectId, testing.ClusterUuid1)
 			basePod.RequestedResources.Cpu = &api.RequestResourceCores{
 				Limit:   pointer.Float64(16),
 				Request: pointer.Float64(8),
@@ -131,7 +132,7 @@ var _ = Describe("Workloads-Pods API advanced tests", Ordered, func() {
 			Expect(apiResponse.Code).To(Equal(http.StatusNoContent))
 			createdPods = append(createdPods, basePod, basePod2)
 
-			apiResponse, _ = workloadsService.GetWorkload(ctx, testing.TestUuid1)
+			apiResponse, _ = workloadsService.GetWorkload(ctx, uid)
 			Expect(apiResponse.Code).To(Equal(http.StatusOK))
 			workloadResponse := httpResponseBodyToWorkloadResponse(apiResponse)
 			Expect(workloadResponse.PodsRequestedResources.Cpu.Request).ToNot(BeNil())
@@ -147,10 +148,10 @@ var _ = Describe("Workloads-Pods API advanced tests", Ordered, func() {
 			Expect(workloadResponse.CompletedAt).To(BeNil())
 
 			baseWorkload.Phase = api.PHASE_COMPLETED
-			apiResponse, _ = workloadsService.UpsertWorkload(ctx, testing.TestUuid1, baseWorkload)
+			apiResponse, _ = workloadsService.UpsertWorkload(ctx, uid, baseWorkload)
 			Expect(apiResponse.Code).To(Equal(http.StatusNoContent))
 
-			apiResponse, _ = workloadsService.GetWorkload(ctx, testing.TestUuid1)
+			apiResponse, _ = workloadsService.GetWorkload(ctx, uid)
 			Expect(apiResponse.Code).To(Equal(http.StatusOK))
 			workloadResponse = httpResponseBodyToWorkloadResponse(apiResponse)
 

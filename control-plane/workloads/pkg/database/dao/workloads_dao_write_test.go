@@ -34,7 +34,9 @@ const (
 	wlWriteElementsDeleteNoCluster = "DELETE FROM workload_elements WHERE tenant_id = ? AND workload_id = ? AND id NOT IN (?)"
 	wlWriteElementsDeleteAll       = "DELETE FROM workload_elements WHERE tenant_id = ? AND workload_id = ?"
 	wlWriteElementsInsert          = "INSERT INTO workload_elements (id,workload_id,tenant_id,cluster_id,name,level,parent_id,instance_key,replica_key,k8s_ref_uid,k8s_ref_name,gvk_group,gvk_version,gvk_kind,created_at,topology) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?) ON CONFLICT (workload_id,id) DO UPDATE SET topology=excluded.topology WHERE workload_elements.topology IS DISTINCT FROM excluded.topology"
-	wlWritePhaseUpdate             = "UPDATE workloads SET deleted_at=?,phase=?,phase_message=? WHERE tenant_id = ? AND id = ? AND phase_updated_at < ?"
+	wlWriteRowLookup               = "SELECT id FROM workloads WHERE tenant_id = ? AND id = ? LIMIT ?"
+	wlWriteInsert                  = "INSERT INTO workloads (id,created_at,updated_at,deleted_at,name,external_workload_name,source,priority_class_name,type,tenant_id,cluster_id,category_id,namespace,requested_gpu_limit,requested_gpu_request,requested_gpu_memory_limit,requested_gpu_memory_request,requested_cpu_limit,requested_cpu_request,requested_cpu_memory_limit,requested_cpu_memory_request,requested_mig_device,support_delete,phase,phase_message,phase_updated_at,k8s_phase,k8s_phase_updated_at,requested_pods_number,requested_pods_min,requested_pods_max,requested_pods_parallelism,requested_pods_completions,requested_nodepools,images,distributed_framework,urls,network_status,conditions,priority,additional_fields,fully_saas_workload,command,arguments,environment_variables,scheduling_conditions,phase_reason,guaranteed_runtime_ends_at,application_id,application_name,topology,idle_since,structure_elements_total_count,endpoints,node_affinities,k8s_object_group,k8s_object_version,resource_refs) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?) ON CONFLICT (id) DO NOTHING"
+	wlWritePhaseUpdate             = "UPDATE workloads SET deleted_at=?,phase=?,phase_message=? WHERE tenant_id = ? AND id = ? AND phase_updated_at < ? AND deleted_at IS NULL"
 	wlWriteInternalInsert          = "INSERT INTO workloads (id,created_at,updated_at,deleted_at,submitted_by,name,external_workload_name,source,priority_class_name,preemptibility,type,tenant_id,cluster_id,project_name,project_id,department_name,department_id,category_id,namespace,requested_gpu_limit,requested_gpu_request,requested_gpu_memory_limit,requested_gpu_memory_request,requested_cpu_limit,requested_cpu_request,requested_cpu_memory_limit,requested_cpu_memory_request,requested_mig_device,support_delete,support_suspend,phase,phase_message,phase_updated_at,k8s_phase,k8s_phase_updated_at,requested_pods_number,requested_pods_min,requested_pods_max,requested_pods_parallelism,requested_pods_completions,requested_nodepools,images,distributed_framework,urls,network_status,conditions,priority,additional_fields,fully_saas_workload,command,arguments,environment_variables,scheduling_conditions,phase_reason,guaranteed_runtime_ends_at,application_id,application_name,topology,idle_since,external_connections,structure_elements_total_count,endpoints,node_affinities,k8s_object_group,k8s_object_version,resource_refs) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?) ON CONFLICT DO NOTHING"
 	wlWriteInternalUpdate          = "UPDATE workloads SET datasources=?,environments=?,external_connections=?,preemptibility=?,source_api=?,support_delete=?,support_suspend=? WHERE id = ? AND tenant_id = ?"
 	wlWriteInternalUpdateMin       = "UPDATE workloads SET preemptibility=?,source_api=? WHERE id = ? AND tenant_id = ?"
@@ -169,18 +171,91 @@ var _ = Describe("DbUpsertWorkloadFull", func() {
 		m.ExpectExec(wlWriteElementsInsert).Returns(1)
 		m.ExpectTransaction().Commit()
 
-		apiErr := (&WorkloadsDao{}).DbUpsertWorkloadFull(testCtx(1), 1, wlWriteClusterId.String(),
+		upserted, apiErr := (&WorkloadsDao{}).DbUpsertWorkloadFull(testCtx(1), 1, wlWriteClusterId.String(),
 			wlWriteWorkload(), wlWriteChildren(), wlWriteElements())
 
 		Expect(apiErr).To(BeNil())
+		Expect(upserted).To(BeTrue())
+	})
+
+	It("inserts the workload when it has no row yet", func() {
+		m := setupDaoMock(GinkgoT())
+		m.ExpectTransaction().Begin()
+		m.ExpectExec(wlWriteSave).Returns(0)
+		m.ExpectQuery(wlWriteRowLookup).Returns([]wlWriteIdRow{})
+		m.ExpectExec(wlWriteInsert).Returns(1)
+		m.ExpectExec(wlWriteSyncResetSuspend, false, 1, wlWriteId, true, string(api.SOURCEAPI_WORKLOADS_V2)).Returns(1)
+		m.ExpectExec(wlWriteSavepointChildren).Returns(0)
+		m.ExpectExec(wlWriteSavepointElements).Returns(0)
+		m.ExpectExec(wlWriteElementsDeleteAll).Returns(0)
+		m.ExpectTransaction().Commit()
+
+		upserted, apiErr := (&WorkloadsDao{}).DbUpsertWorkloadFull(testCtx(1), 1, "", wlWriteWorkload(), nil, nil)
+
+		Expect(apiErr).To(BeNil())
+		Expect(upserted).To(BeTrue())
+	})
+
+	It("leaves a soft-deleted workload deleted and writes nothing else", func() {
+		m := setupDaoMock(GinkgoT())
+		m.ExpectTransaction().Begin()
+		m.ExpectExec(wlWriteSave).Returns(0)
+		m.ExpectQuery(wlWriteRowLookup).Returns([]wlWriteIdRow{{ID: wlWriteId.String()}})
+		m.ExpectTransaction().Commit()
+
+		upserted, apiErr := (&WorkloadsDao{}).DbUpsertWorkloadFull(testCtx(1), 1, wlWriteClusterId.String(),
+			wlWriteWorkload(), wlWriteChildren(), wlWriteElements())
+
+		Expect(apiErr).To(BeNil())
+		Expect(upserted).To(BeFalse())
+	})
+
+	It("returns an error when the commit of a skipped upsert fails", func() {
+		m := setupDaoMock(GinkgoT())
+		m.ExpectTransaction().Begin()
+		m.ExpectExec(wlWriteSave).Returns(0)
+		m.ExpectQuery(wlWriteRowLookup).Returns([]wlWriteIdRow{{ID: wlWriteId.String()}})
+
+		upserted, apiErr := (&WorkloadsDao{}).DbUpsertWorkloadFull(testCtx(1), 1, "", wlWriteWorkload(), nil, nil)
+
+		Expect(apiErr).ToNot(BeNil())
+		Expect(upserted).To(BeFalse())
+	})
+
+	It("returns an error when the soft-deleted row lookup fails", func() {
+		m := setupDaoMock(GinkgoT())
+		m.ExpectTransaction().Begin()
+		m.ExpectExec(wlWriteSave).Returns(0)
+		m.ExpectQuery(wlWriteRowLookup).ReturnsError(errors.New("boom"))
+		m.ExpectTransaction().Rollback()
+
+		upserted, apiErr := (&WorkloadsDao{}).DbUpsertWorkloadFull(testCtx(1), 1, "", wlWriteWorkload(), nil, nil)
+
+		Expect(apiErr).ToNot(BeNil())
+		Expect(upserted).To(BeFalse())
+	})
+
+	It("returns an error when the insert fails", func() {
+		m := setupDaoMock(GinkgoT())
+		m.ExpectTransaction().Begin()
+		m.ExpectExec(wlWriteSave).Returns(0)
+		m.ExpectQuery(wlWriteRowLookup).Returns([]wlWriteIdRow{})
+		m.ExpectExec(wlWriteInsert).ReturnsError(errors.New("boom"))
+		m.ExpectTransaction().Rollback()
+
+		upserted, apiErr := (&WorkloadsDao{}).DbUpsertWorkloadFull(testCtx(1), 1, "", wlWriteWorkload(), nil, nil)
+
+		Expect(apiErr).ToNot(BeNil())
+		Expect(upserted).To(BeFalse())
 	})
 
 	It("returns an error when the transaction cannot begin", func() {
 		setupDaoMock(GinkgoT())
 
-		apiErr := (&WorkloadsDao{}).DbUpsertWorkloadFull(testCtx(1), 1, "", wlWriteWorkload(), nil, nil)
+		upserted, apiErr := (&WorkloadsDao{}).DbUpsertWorkloadFull(testCtx(1), 1, "", wlWriteWorkload(), nil, nil)
 
 		Expect(apiErr).ToNot(BeNil())
+		Expect(upserted).To(BeFalse())
 	})
 
 	It("returns an error when the workload save fails", func() {
@@ -189,9 +264,10 @@ var _ = Describe("DbUpsertWorkloadFull", func() {
 		m.ExpectExec(wlWriteSave).ReturnsError(errors.New("boom"))
 		m.ExpectTransaction().Rollback()
 
-		apiErr := (&WorkloadsDao{}).DbUpsertWorkloadFull(testCtx(1), 1, "", wlWriteWorkload(), nil, nil)
+		upserted, apiErr := (&WorkloadsDao{}).DbUpsertWorkloadFull(testCtx(1), 1, "", wlWriteWorkload(), nil, nil)
 
 		Expect(apiErr).ToNot(BeNil())
+		Expect(upserted).To(BeFalse())
 	})
 
 	It("returns an error when the children insert fails", func() {
@@ -204,9 +280,10 @@ var _ = Describe("DbUpsertWorkloadFull", func() {
 		m.ExpectExec(wlWriteRollbackChildren).Returns(0)
 		m.ExpectTransaction().Commit()
 
-		apiErr := (&WorkloadsDao{}).DbUpsertWorkloadFull(testCtx(1), 1, "", wlWriteWorkload(), wlWriteChildren(), wlWriteElements())
+		upserted, apiErr := (&WorkloadsDao{}).DbUpsertWorkloadFull(testCtx(1), 1, "", wlWriteWorkload(), wlWriteChildren(), wlWriteElements())
 
 		Expect(apiErr).ToNot(BeNil())
+		Expect(upserted).To(BeTrue())
 	})
 
 	It("succeeds when only the elements update fails and is rolled back to its savepoint", func() {
@@ -220,9 +297,10 @@ var _ = Describe("DbUpsertWorkloadFull", func() {
 		m.ExpectExec(wlWriteRollbackElements).Returns(0)
 		m.ExpectTransaction().Commit()
 
-		apiErr := (&WorkloadsDao{}).DbUpsertWorkloadFull(testCtx(1), 1, "", wlWriteWorkload(), nil, wlWriteElements())
+		upserted, apiErr := (&WorkloadsDao{}).DbUpsertWorkloadFull(testCtx(1), 1, "", wlWriteWorkload(), nil, wlWriteElements())
 
 		Expect(apiErr).To(BeNil())
+		Expect(upserted).To(BeTrue())
 	})
 
 	It("returns an error when the commit fails", func() {
@@ -234,9 +312,10 @@ var _ = Describe("DbUpsertWorkloadFull", func() {
 		m.ExpectExec(wlWriteSavepointElements).Returns(0)
 		m.ExpectExec(wlWriteElementsDeleteAll).Returns(0)
 
-		apiErr := (&WorkloadsDao{}).DbUpsertWorkloadFull(testCtx(1), 1, "", wlWriteWorkload(), nil, nil)
+		upserted, apiErr := (&WorkloadsDao{}).DbUpsertWorkloadFull(testCtx(1), 1, "", wlWriteWorkload(), nil, nil)
 
 		Expect(apiErr).ToNot(BeNil())
+		Expect(upserted).To(BeFalse())
 	})
 })
 

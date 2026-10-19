@@ -8,6 +8,7 @@ package dao
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"time"
@@ -25,6 +26,7 @@ import (
 	"github.com/dsx-ai-factory/run-ai/runai-common-packages/runaidb/dbenrich"
 	"github.com/dsx-ai-factory/run-ai/runai-common-packages/runaidb/orm"
 	"github.com/google/uuid"
+	"gorm.io/gorm/clause"
 )
 
 const UniqueApplicationConstraint = "applications_unique"
@@ -40,7 +42,7 @@ func SyncClusterApplications(ctx context.Context, tenantId string, clusterId uui
 	excludedIdsFromDelete := []string{}
 
 	if len(applicationsForUpsert) > 0 {
-		syncedExisting, failedExisting, ids := upsertApplications(tx, applicationsForUpsert)
+		syncedExisting, failedExisting, ids := upsertApplications(tx, applicationsForUpsert, syncDeleted)
 		synced = append(synced, syncedExisting...)
 		failed = append(failed, failedExisting...)
 		excludedIdsFromDelete = append(excludedIdsFromDelete, ids...)
@@ -102,16 +104,19 @@ func deleteApplicationsWithExcluded(tx orm.DB, tenantId string, clusterId string
 	return err
 }
 
-func upsertApplications(tx orm.DB, applications []models.Application) ([]string, []string, []string) {
+// upsertApplications upserts the applications reported by the cluster. Only a full sync (reviveDeleted) may
+// bring back a soft-deleted application, since it reports exactly what exists in the cluster.
+func upsertApplications(tx orm.DB, applications []models.Application, reviveDeleted bool) ([]string, []string, []string) {
 	synced := []string{}
 	failed := []string{}
 	ids := []string{}
 	for _, application := range applications {
-		// Omit CreatedAt/CreatedBy: the sync model does not carry them, and Save updates
-		// all columns on an existing row - without this it would overwrite created_at/
-		// created_by with zero values on every re-sync. On insert these fall back to the
-		// column defaults (created_at DEFAULT now()).
-		_, saveErr := tx.Table(models.ApplicationTableName).Omit("CreatedAt", "CreatedBy").Save(&application)
+		var saveErr error
+		if reviveDeleted {
+			_, saveErr = applicationsUpsertQuery(tx).Save(&application)
+		} else {
+			saveErr = upsertApplicationUnlessDeleted(tx, application)
+		}
 		if saveErr != nil {
 			tx.RollbackTo("sp") // Rollback to last saved point
 			pqErr := getPgError(saveErr)
@@ -148,6 +153,42 @@ func upsertApplications(tx orm.DB, applications []models.Application) ([]string,
 		ids = append(ids, application.ID.String())
 	}
 	return synced, failed, ids
+}
+
+// applicationsUpsertQuery omits CreatedAt/CreatedBy: the sync model does not carry them, and an upsert updates
+// all columns on an existing row - without this it would overwrite created_at/created_by with zero values on
+// every re-sync. On insert these fall back to the column defaults (created_at DEFAULT now()).
+func applicationsUpsertQuery(tx orm.DB) orm.DB {
+	return tx.Table(models.ApplicationTableName).Omit("CreatedAt", "CreatedBy")
+}
+
+// upsertApplicationUnlessDeleted updates the live row of the application, or inserts the application when it
+// has no row yet. A soft-deleted application is left untouched: a cluster update that raced with the cluster's
+// delete must not revive it. The update waits for a concurrent delete of the row to commit before matching
+// nothing, so the lookup that follows sees the deletion.
+func upsertApplicationUnlessDeleted(tx orm.DB, application models.Application) error {
+	updated, err := applicationsUpsertQuery(tx).Select("*").Updates(&application)
+	if err != nil || updated > 0 {
+		return err
+	}
+
+	var existing models.Application
+	err = tx.Unscoped().Table(models.ApplicationTableName).
+		Select("id").
+		Where("tenant_id = ?", application.TenantId).
+		Where("id = ?", application.ID).
+		Take(&existing)
+	if err == nil {
+		return nil
+	}
+	if !errors.Is(err, orm.ErrRecordNotFound) {
+		return err
+	}
+
+	_, err = applicationsUpsertQuery(tx).
+		Clauses(clause.OnConflict{Columns: []clause.Column{{Name: "id"}}, DoNothing: true}).
+		Create(&application)
+	return err
 }
 
 func applyQueryParams(query orm.DB, offset int32, limit int32, sortOrder string, sortBy string, filterBy []queryapi.Filter) (orm.DB, error) {
