@@ -31,7 +31,9 @@ import (
 // - CP cache stores parsed metadata for exact-version HTTPS NGC charts (default: 10 minutes).
 //   Archive bytes are never cached. Custom URLs and uploads always fetch fresh data.
 // - Cache misses start a local worker that fetches and parses the chart.
-//   Matching NGC requests share that worker; keys isolate charts, caller scope and credentials.
+//   Matching NGC requests share that worker and use the same key as cached results.
+// - Shared credentials reuse metadata within a tenant for the same asset and key value.
+//   Personal credentials retain caller isolation; credential-free requests share within a tenant.
 // - At most four workers run at once; excess new work returns 503.
 //   A worker is cancelled when its last caller leaves.
 // - Cache failures never fail inspection.
@@ -64,7 +66,7 @@ type inspectionFlight struct {
 
 // Inspector caches NGC metadata and limits concurrent inspections.
 // Callers must authorize the source and credential before every request.
-// Scope must include trusted tenant, caller and authorization-relevant groups.
+// Scope must include the trusted tenant and asset, plus caller identity for personal credentials.
 type Inspector struct {
 	mu               sync.Mutex
 	fetch            FetchFunc
@@ -104,7 +106,7 @@ func NewInspector(fetch FetchFunc, ttl time.Duration) *Inspector {
 }
 
 // Inspect fetches and parses chart metadata, or returns a cached NGC result.
-// The service must authorize the request and supply a trusted caller scope.
+// The service must authorize the request and supply a trusted tenant/credential scope.
 func (i *Inspector) Inspect(ctx context.Context, selection Selection, scope, credential string) (*api.AiApplicationChartInspectionResponse, *api.Error) {
 	return i.InspectWithFetch(ctx, selection, scope, credential, i.fetch)
 }
@@ -276,7 +278,7 @@ func decodeResult(data []byte) (*api.AiApplicationChartInspectionResponse, *api.
 	return &result, nil
 }
 
-// Keys isolate chart, caller scope, credentials and parser version.
+// Keys isolate chart, tenant/credential scope, actual key material and parser version.
 // HMAC keeps raw credentials out of keys; the salt is unique to this Inspector.
 func (i *Inspector) key(selection Selection, scope, credential string) string {
 	fingerprint := hmac.New(sha256.New, i.salt[:])

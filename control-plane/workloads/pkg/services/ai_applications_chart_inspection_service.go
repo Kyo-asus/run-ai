@@ -87,7 +87,8 @@ func (s *applicationChartInspector) inspect(ctx context.Context, request api.AiA
 		return NewErrorResponse(api.NewValidationError("uploaded charts do not accept source credentials")), nil
 	}
 
-	// Authorize the source before every cache lookup; metadata is not an access grant.
+	// Assets checks tenant/RBAC access and personal ownership before every cache lookup
+	// or in-flight join, independently of the caller-supplied userCredential flag.
 	key := ""
 	if request.Auth.AssetId != "" {
 		if id, err := uuid.Parse(request.Auth.AssetId); err != nil || id == uuid.Nil {
@@ -160,15 +161,23 @@ func chartInspectionSelection(ref api.AiApplicationSpecChartRef) (chartinspectio
 	return selection, nil
 }
 
+// Shared assets and credential-free downloads return the same metadata to authorized
+// callers within a tenant. Personal credentials retain their existing caller isolation.
+// Inspector adds the chart selection, actual credential fingerprint and parser version.
 func chartInspectionScope(ctx context.Context, auth api.AiApplicationAuth) (string, *api.Error) {
-	identity := make(map[string]any)
-	for _, field := range []runaictx.ContextField{
-		runaictx.CfTenantId, runaictx.CfSubjectID, runaictx.CfSubjectType, runaictx.CfClientId, runaictx.CfClientType, runaictx.CfGroups, runaictx.CfSupplementalGroups,
-	} {
-		identity[string(field)] = runaictx.GetField(ctx, field)
+	personal := auth.UserCredential != nil && *auth.UserCredential
+	identity := map[string]any{
+		string(runaictx.CfTenantId): runaictx.GetField(ctx, runaictx.CfTenantId),
+		"assetId":                   auth.AssetId,
+		"userCredential":            personal,
 	}
-	identity["assetId"] = auth.AssetId
-	identity["userCredential"] = auth.UserCredential != nil && *auth.UserCredential
+	if personal {
+		for _, field := range []runaictx.ContextField{
+			runaictx.CfSubjectID, runaictx.CfSubjectType, runaictx.CfClientId, runaictx.CfClientType, runaictx.CfGroups, runaictx.CfSupplementalGroups,
+		} {
+			identity[string(field)] = runaictx.GetField(ctx, field)
+		}
+	}
 	encoded, err := json.Marshal(identity)
 	if err != nil {
 		return "", api.NewError(http.StatusInternalServerError, "failed to resolve chart inspection caller scope", nil)

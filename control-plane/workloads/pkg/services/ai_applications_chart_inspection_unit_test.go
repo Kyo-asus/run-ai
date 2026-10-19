@@ -282,12 +282,17 @@ func inspectionTestContext(tenant, subject string) context.Context {
 	return context.WithValue(ctx, runaictx.CfSubjectID, subject)
 }
 
-func inspectionTestArchive(t *testing.T) []byte {
+type inspectionTestReporter interface {
+	Helper()
+	Fatal(...any)
+}
+
+func inspectionTestArchive(t inspectionTestReporter) []byte {
 	questions := "questions:\n- variable: replicas\n  label: Replicas\n  type: int\n"
 	return inspectionTestArchiveWithQuestions(t, &questions)
 }
 
-func inspectionTestArchiveWithQuestions(t *testing.T, questions *string) []byte {
+func inspectionTestArchiveWithQuestions(t inspectionTestReporter, questions *string) []byte {
 	t.Helper()
 	var b bytes.Buffer
 	gz := gzip.NewWriter(&b)

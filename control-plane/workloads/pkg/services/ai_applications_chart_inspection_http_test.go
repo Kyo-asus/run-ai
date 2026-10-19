@@ -34,8 +34,10 @@ func TestChartInspectionRouteReauthorizesWarmResultsThroughRealClients(t *testin
 	allowApplication.Store(true)
 	allowCredential.Store(true)
 	var permissionChecks, credentialChecks atomic.Int32
+	var expectedSubject atomic.Value
+	expectedSubject.Store("alice")
 	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.Header.Get("X-Runai-Tenant-Id") != "1" || r.Header.Get("X-Runai-Subject-Id") != "alice" {
+		if r.Header.Get("X-Runai-Tenant-Id") != "1" || r.Header.Get("X-Runai-Subject-Id") != expectedSubject.Load().(string) {
 			t.Error("trusted caller identity was not forwarded to authorization/Assets")
 		}
 		switch r.URL.Path {
@@ -104,8 +106,13 @@ func TestChartInspectionRouteReauthorizesWarmResultsThroughRealClients(t *testin
 			allowCredential.Store(true)
 			allowApplication.Store(false)
 		}
-		request := httptest.NewRequest(http.MethodPost, "/api/v1/ai-applications/charts/inspect", strings.NewReader(`{"chartRef":{"repo":"https://helm.ngc.nvidia.com/nvidia","chartName":"example","chartVersion":"1.0.0"},"auth":{"assetId":"11111111-1111-4111-8111-111111111111","userCredential":true}}`))
-		request = request.WithContext(inspectionTestContext("1", "alice"))
+		request := httptest.NewRequest(http.MethodPost, "/api/v1/ai-applications/charts/inspect", strings.NewReader(`{"chartRef":{"repo":"https://helm.ngc.nvidia.com/nvidia","chartName":"example","chartVersion":"1.0.0"},"auth":{"assetId":"11111111-1111-4111-8111-111111111111","userCredential":false}}`))
+		subject := "alice"
+		if step > 0 {
+			subject = "bob"
+		}
+		expectedSubject.Store(subject)
+		request = request.WithContext(inspectionTestContext("1", subject))
 		response := httptest.NewRecorder()
 		handler.ServeHTTP(response, request)
 		if response.Code != want {
