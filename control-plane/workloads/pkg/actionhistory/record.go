@@ -48,7 +48,7 @@ func NewWorkloadActionRecord(ctx context.Context, recordID uuid.UUID, action api
 		var err error
 		recordID, err = uuid.NewRandom()
 		if err != nil {
-			return nil, api.NewError(http.StatusInternalServerError, "failed to generate workload action ID", err)
+			return nil, api.NewError(http.StatusServiceUnavailable, "failed to generate workload action ID", err)
 		}
 	}
 	return &models.WorkloadActionHistory{

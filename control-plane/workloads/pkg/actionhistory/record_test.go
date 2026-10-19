@@ -7,7 +7,10 @@ package actionhistory_test
 
 import (
 	"context"
+	"io"
+	"net/http"
 	"sync"
+	"testing/iotest"
 	"time"
 
 	"github.com/dsx-ai-factory/run-ai/control-plane/workloads/internal/generated/pkg/api"
@@ -34,6 +37,19 @@ type authenticatedContextCase struct {
 }
 
 var _ = Describe("NewWorkloadActionRecord", func() {
+	It("returns 503 when action ID generation fails", func() {
+		ctx := authenticatedContext("42", "user@example.test", "user")
+		workload := acceptedWorkload()
+		uuid.SetRand(iotest.ErrReader(io.ErrUnexpectedEOF))
+		DeferCleanup(func() { uuid.SetRand(nil) })
+
+		record, apiErr := actionhistory.NewWorkloadActionRecord(ctx, uuid.Nil, api.WORKLOADACTIONTYPE_CREATE, workload, time.Now())
+
+		Expect(record).To(BeNil())
+		Expect(apiErr).To(HaveOccurred())
+		Expect(apiErr.Code).To(Equal(int32(http.StatusServiceUnavailable)))
+	})
+
 	DescribeTable("rejects invalid authenticated context", func(tc authenticatedContextCase) {
 		record, apiErr := actionhistory.NewWorkloadActionRecord(tc.ctx, uuid.Nil, api.WORKLOADACTIONTYPE_CREATE, acceptedWorkload(), time.Now())
 		Expect(record).To(BeNil())
