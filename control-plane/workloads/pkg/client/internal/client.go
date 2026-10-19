@@ -211,13 +211,13 @@ func (wc *WorkloadsClient) CreateWorkloadActions(ctx context.Context, actions op
 			return nil
 		}
 		data, _ := io.ReadAll(httpResponse.Body)
-		message := fmt.Sprintf("failed to store workload actions: [%d] %s", httpResponse.StatusCode, data)
+		message := fmt.Sprintf("failed to request workloads service to create workload actions: [%d] %s", httpResponse.StatusCode, data)
 		return openapi.NewError(int32(httpResponse.StatusCode), message)
 	}
 	if err == nil {
-		err = fmt.Errorf("workloads service returned no response")
+		err = fmt.Errorf("no HTTP response received")
 	}
-	return openapi.NewError(http.StatusServiceUnavailable, fmt.Sprintf("failed to store workload actions: %v", err))
+	return openapi.NewError(http.StatusServiceUnavailable, fmt.Sprintf("failed to request workloads service to create workload actions: %v", err))
 }
 
 func (wc *WorkloadsClient) PatchWorkload(ctx context.Context, workloadId string, fields openapi.WorkloadPatchFields) *openapi.Error {
