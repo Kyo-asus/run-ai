@@ -47,8 +47,11 @@ func (w *WorkloadsV2Impl) recordAcceptedWorkloadAction(ctx context.Context, reco
 		return
 	}
 	w.workloadActionRecorder.Record(ctx, workloadAction{
-		ClusterID: record.ClusterId, WorkloadID: record.ID, WorkloadName: record.Name,
-		Action: action, AcceptedAt: time.Now().UTC().Truncate(time.Microsecond),
+		ClusterID:    record.ClusterId,
+		WorkloadID:   record.ID,
+		WorkloadName: record.Name,
+		Action:       action,
+		AcceptedAt:   time.Now().UTC().Truncate(time.Microsecond),
 	})
 }
 
@@ -72,8 +75,12 @@ func (r *asyncWorkloadActionRecorder) Record(ctx context.Context, actions ...wor
 	request := workloadsApi.CreateWorkloadActionsRequest{Actions: make([]workloadsApi.WorkloadActionRecordInput, 0, len(actions))}
 	for _, action := range actions {
 		request.Actions = append(request.Actions, workloadsApi.WorkloadActionRecordInput{
-			Id: uuid.NewString(), ClusterId: action.ClusterID, WorkloadId: action.WorkloadID,
-			WorkloadName: action.WorkloadName, Action: action.Action, AcceptedAt: action.AcceptedAt,
+			Id:           uuid.NewString(),
+			ClusterId:    action.ClusterID,
+			WorkloadId:   action.WorkloadID,
+			WorkloadName: action.WorkloadName,
+			Action:       action.Action,
+			AcceptedAt:   action.AcceptedAt,
 		})
 	}
 	// The command is already accepted, so delivery must continue after its request ends.
