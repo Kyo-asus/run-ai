@@ -12,6 +12,7 @@ import (
 	"github.com/dsx-ai-factory/run-ai/control-plane/workloads/internal/generated/pkg/api"
 	"github.com/dsx-ai-factory/run-ai/control-plane/workloads/pkg/database/models"
 	"github.com/dsx-ai-factory/run-ai/control-plane/workloads/pkg/services_utils"
+	"github.com/dsx-ai-factory/run-ai/runai-application-packages/datastructs"
 	"github.com/dsx-ai-factory/run-ai/runai-common-packages/runaidb"
 	"github.com/dsx-ai-factory/run-ai/runai-common-packages/runaidb/orm/clause"
 	"github.com/google/uuid"
@@ -44,17 +45,13 @@ func DbInsertRegisteredWorkloadActions(ctx context.Context, records []models.Wor
 	if apiErr != nil {
 		return apiErr
 	}
-	workloadIDs := make([]uuid.UUID, 0, len(records))
-	seen := make(map[uuid.UUID]bool, len(records))
+	workloadIDs := datastructs.NewSet[uuid.UUID]()
 	for _, record := range records {
-		if !seen[record.WorkloadID] {
-			seen[record.WorkloadID] = true
-			workloadIDs = append(workloadIDs, record.WorkloadID)
-		}
+		workloadIDs.Add(record.WorkloadID)
 	}
 	var count int64
 	err := runaidb.DB().WithContext(ctx).Unscoped().Model(&models.Workload{}).
-		Where("tenant_id = ? AND id IN ?", tenantID, workloadIDs).Count(&count)
+		Where("tenant_id = ? AND id IN ?", tenantID, workloadIDs.Keys()).Count(&count)
 	if err != nil {
 		return api.NewError(http.StatusInternalServerError, "Failed to check workload registration", err)
 	}
