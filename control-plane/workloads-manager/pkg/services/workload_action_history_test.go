@@ -69,12 +69,12 @@ var _ = Describe("Workload action delivery", func() {
 			newBackOff: func() backoff.BackOff { return backoff.WithMaxRetries(backoff.NewConstantBackOff(time.Millisecond), 2) },
 		}
 		ctx := context.WithValue(context.Background(), middlewares.ContextJwtToken, "token")
-		request := workloadsApi.CreateWorkloadActionsRequest{Actions: []workloadsApi.WorkloadActionRecordInput{{Id: "record-id"}}}
+		request := workloadsApi.CreateWorkloadActionsRequest{
+			Actions: []workloadsApi.WorkloadActionRecordInput{{Id: "record-1"}, {Id: "record-2"}},
+		}
 
 		Expect(recorder.deliver(ctx, request)).To(BeNil())
-		Expect(client.requests).To(HaveLen(2))
-		Expect(client.requests[0].Actions[0].Id).To(Equal("record-id"))
-		Expect(client.requests[1].Actions[0].Id).To(Equal("record-id"))
+		Expect(client.requests).To(Equal([]workloadsApi.CreateWorkloadActionsRequest{request, request}))
 		Expect(client.tokens).To(ConsistOf("token", "token"))
 	})
 

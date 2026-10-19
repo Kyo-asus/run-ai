@@ -96,7 +96,7 @@ var _ = Describe("Workload action history", func() {
 		Expect(stored[0].AcceptedAt).To(BeTemporally("==", input.AcceptedAt))
 	})
 
-	It("stores retried records once", func() {
+	It("stores saved and new actions once when retrying a batch", func() {
 		input := api.WorkloadActionRecordInput{
 			Id: uuid.NewString(), ClusterId: testing.ClusterUuid1, WorkloadId: uuid.NewString(),
 			WorkloadName: "retried-workload", Action: api.WORKLOADACTIONTYPE_UPDATE, AcceptedAt: time.Now().UTC(),
@@ -105,12 +105,23 @@ var _ = Describe("Workload action history", func() {
 		_, createErr := runaidb.DB().Create(&workload)
 		Expect(createErr).NotTo(HaveOccurred())
 		request := api.CreateWorkloadActionsRequest{Actions: []api.WorkloadActionRecordInput{input}}
+		response, err := service.InternalCreateWorkloadActions(ctx, request)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(response.Code).To(Equal(http.StatusNoContent))
+		Expect(storedWorkloadActions(ctx, workload.ID, 0)).To(HaveLen(1))
+
+		newInput := input
+		newInput.Id = uuid.NewString()
+		newInput.Action = api.WORKLOADACTIONTYPE_DELETE
+		request.Actions = append(request.Actions, newInput)
 		for range 2 {
 			response, err := service.InternalCreateWorkloadActions(ctx, request)
 			Expect(err).NotTo(HaveOccurred())
 			Expect(response.Code).To(Equal(http.StatusNoContent))
+			stored := storedWorkloadActions(ctx, workload.ID, 0)
+			Expect(stored).To(HaveLen(2))
+			Expect([]string{stored[0].ID.String(), stored[1].ID.String()}).To(ConsistOf(input.Id, newInput.Id))
 		}
-		Expect(storedWorkloadActions(ctx, uuid.MustParse(input.WorkloadId), 0)).To(HaveLen(1))
 	})
 
 	It("retries a batch until every workload is registered", func() {
