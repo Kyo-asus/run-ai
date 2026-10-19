@@ -4,18 +4,11 @@
 package chart_inspection
 
 import (
-	"encoding/json"
 	"fmt"
-	"github.com/dsx-ai-factory/run-ai/control-plane/workloads/internal/generated/pkg/api"
-	"math"
-	"math/big"
-	"net"
-	"regexp"
 	"sort"
-	"strconv"
 	"strings"
-	"unicode/utf8"
 
+	"github.com/dsx-ai-factory/run-ai/control-plane/workloads/internal/generated/pkg/api"
 	"github.com/dsx-ai-factory/run-ai/runai-application-packages/datastructs"
 )
 
@@ -39,19 +32,7 @@ var questionTypes = datastructs.NewSet(strings.Fields("string multiline int floa
 var questionProperties = datastructs.NewSet(
 	strings.Fields("variable label description type default required group min max min_length max_length options multiple show_if show_subquestion_if show_subquestions_if subquestions")...,
 )
-var textTypes = datastructs.NewSet(strings.Fields("string multiline password storageclass pvc configmap hostname ipaddr cidr cron")...)
-var hostnamePart = regexp.MustCompile(`(?i)^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$`)
-var cronPart = regexp.MustCompile(`^(\*|\d+(?:-\d+)?)(?:/(\d+))?$`)
 
-type declarationQuestion struct {
-	key, parent string
-	references  []string
-}
-type pathTree struct {
-	terminal  bool
-	container byte
-	children  map[any]*pathTree
-}
 type declarationValidator struct {
 	defaults     map[string]any
 	warnings     []api.AiApplicationChartInspectionWarning
@@ -185,6 +166,44 @@ func (v *declarationValidator) question(value any, depth int, parent, parentGrou
 	if err := v.destinations.insert(segments); err != nil {
 		return nil, fmt.Errorf("%s variable: %w", where, err)
 	}
+	// Keep stage order: warnings and the first validation error are part of the response.
+	question, err := v.normalizeMetadata(raw, variable, where)
+	if err != nil {
+		return nil, err
+	}
+	group, err := v.normalizeGroup(raw, question, parent, parentGroup, where)
+	if err != nil {
+		return nil, err
+	}
+	if err := v.normalizeConstraints(raw, question, where); err != nil {
+		return nil, err
+	}
+	if err := normalizeDefault(raw, question, where); err != nil {
+		return nil, err
+	}
+	childList, hasChildren, err := normalizeChildGate(raw, question, where)
+	if err != nil {
+		return nil, err
+	}
+	key, err := v.trackQuestion(raw, question, segments, parent, where)
+	if err != nil {
+		return nil, err
+	}
+	if hasChildren {
+		normalized := make([]any, 0, len(childList))
+		for index, child := range childList {
+			parsed, err := v.question(child, depth+1, key, group, fmt.Sprintf("%s.subquestions[%d]", where, index))
+			if err != nil {
+				return nil, err
+			}
+			normalized = append(normalized, parsed)
+		}
+		question["subquestions"] = normalized
+	}
+	return question, nil
+}
+
+func (v *declarationValidator) normalizeMetadata(raw map[string]any, variable, where string) (map[string]any, error) {
 	kind, ok := raw["type"].(string)
 	if !ok || strings.TrimSpace(kind) == "" {
 		return nil, fmt.Errorf("%s requires a type", where)
@@ -233,12 +252,16 @@ func (v *declarationValidator) question(value any, depth int, parent, parentGrou
 	if _, exists := question["multiple"]; exists && kind != questionEnum {
 		return nil, fmt.Errorf("%s multiple is supported only for enum", where)
 	}
+	return question, nil
+}
+
+func (v *declarationValidator) normalizeGroup(raw, question map[string]any, parent, parentGroup, where string) (string, error) {
 	group := parentGroup
 	if text, ok := raw["group"].(string); ok && strings.TrimSpace(text) != "" {
 		group = strings.ToLower(strings.TrimSpace(text))
 	}
 	if parent != "" && group != parentGroup {
-		return nil, fmt.Errorf("%s must inherit its parent group", where)
+		return "", fmt.Errorf("%s must inherit its parent group", where)
 	}
 	question["group"] = group
 	if !v.groupNames[group] {
@@ -249,6 +272,11 @@ func (v *declarationValidator) question(value any, depth int, parent, parentGrou
 		v.groups = append(v.groups, map[string]any{"name": group, propertyLabel: label, propertyDescription: ""})
 		v.groupNames[group] = true
 	}
+	return group, nil
+}
+
+func (v *declarationValidator) normalizeConstraints(raw, question map[string]any, where string) error {
+	kind := question["type"].(string)
 	for _, key := range []string{propertyMin, propertyMax, propertyMinLength, propertyMaxLength} {
 		item, exists := raw[key]
 		if !exists {
@@ -256,14 +284,14 @@ func (v *declarationValidator) question(value any, depth int, parent, parentGrou
 		}
 		number, ok := numeric(item)
 		if !ok {
-			return nil, fmt.Errorf("%s %s must be numeric", where, key)
+			return fmt.Errorf("%s %s must be numeric", where, key)
 		}
 		if key == propertyMin || key == propertyMax {
 			if kind != questionInteger && kind != questionFloat {
-				return nil, fmt.Errorf("%s %s requires a numeric field", where, key)
+				return fmt.Errorf("%s %s requires a numeric field", where, key)
 			}
 		} else if !textTypes.Has(kind) || number.Sign() < 0 || !number.IsInt() {
-			return nil, fmt.Errorf("%s %s requires text and a nonnegative integer", where, key)
+			return fmt.Errorf("%s %s requires text and a nonnegative integer", where, key)
 		}
 		question[key] = item
 	}
@@ -271,18 +299,23 @@ func (v *declarationValidator) question(value any, depth int, parent, parentGrou
 		low, lowOK := numeric(question[pair[0]])
 		high, highOK := numeric(question[pair[1]])
 		if lowOK && highOK && low.Cmp(high) > 0 {
-			return nil, fmt.Errorf("%s minimum exceeds maximum", where)
+			return fmt.Errorf("%s minimum exceeds maximum", where)
 		}
 	}
 	if kind == questionEnum || kind == "radio" {
 		options, err := v.normalizeOptions(raw["options"], where+".options")
 		if err != nil {
-			return nil, fmt.Errorf("%s options: %w", where, err)
+			return fmt.Errorf("%s options: %w", where, err)
 		}
 		question["options"] = options
 	} else if _, exists := raw["options"]; exists {
-		return nil, fmt.Errorf("%s options require enum or radio", where)
+		return fmt.Errorf("%s options require enum or radio", where)
 	}
+	return nil
+}
+
+func normalizeDefault(raw, question map[string]any, where string) error {
+	kind := question["type"].(string)
 	if item, exists := raw["default"]; exists {
 		if kind == "boolean" {
 			if text, ok := item.(string); ok && (text == literalTrue || text == literalFalse) {
@@ -290,14 +323,19 @@ func (v *declarationValidator) question(value any, depth int, parent, parentGrou
 			}
 		}
 		if err := validateAnswer(question, item); err != nil {
-			return nil, fmt.Errorf("%s default: %w", where, err)
+			return fmt.Errorf("%s default: %w", where, err)
 		}
 		question["default"] = item
 	}
+	return nil
+}
+
+func normalizeChildGate(raw, question map[string]any, where string) ([]any, bool, error) {
+	kind := question["type"].(string)
 	gate, hasGate := raw["show_subquestion_if"]
 	if plural, exists := raw["show_subquestions_if"]; exists {
 		if hasGate && !equalScalar(gate, plural) {
-			return nil, fmt.Errorf("%s contains conflicting child gates", where)
+			return nil, false, fmt.Errorf("%s contains conflicting child gates", where)
 		}
 		gate = plural
 		hasGate = true
@@ -308,192 +346,38 @@ func (v *declarationValidator) question(value any, depth int, parent, parentGrou
 		var ok bool
 		childList, ok = children.([]any)
 		if !ok {
-			return nil, fmt.Errorf("%s subquestions must be a list", where)
+			return nil, false, fmt.Errorf("%s subquestions must be a list", where)
 		}
 	}
 	if hasGate {
 		if !isScalar(gate) {
-			return nil, fmt.Errorf("%s child gate must be a scalar", where)
+			return nil, false, fmt.Errorf("%s child gate must be a scalar", where)
 		}
 		if len(childList) > 0 && (kind == "array[string]" || kind == "map[string]" || question["multiple"] == true) {
-			return nil, fmt.Errorf("%s child gate requires a scalar parent", where)
+			return nil, false, fmt.Errorf("%s child gate requires a scalar parent", where)
 		}
 		question["show_subquestion_if"] = gate
 	}
+	return childList, hasChildren, nil
+}
+
+func (v *declarationValidator) trackQuestion(raw, question map[string]any, segments []any, parent, where string) (string, error) {
+	variable := question["variable"].(string)
 	v.ignoreUnknown(raw, questionProperties, where)
 	if _, exists := readPath(v.defaults, segments); v.defaults != nil && !exists {
 		v.warnings = append(v.warnings, api.AiApplicationChartInspectionWarning{Code: "MISSING_DEFAULT_PATH", Message: "Field path is absent from the chart defaults", Path: variable})
 	}
 	references := []string{}
+	var err error
 	if text, ok := question["show_if"].(string); ok {
 		references, err = parseCondition(text)
 		if err != nil {
-			return nil, fmt.Errorf("%s show_if: %w", where, err)
+			return "", fmt.Errorf("%s show_if: %w", where, err)
 		}
 	}
 	key := canonicalPath(segments)
 	v.questions = append(v.questions, declarationQuestion{key: key, parent: parent, references: references})
-	if hasChildren {
-		normalized := make([]any, 0, len(childList))
-		for index, child := range childList {
-			parsed, err := v.question(child, depth+1, key, group, fmt.Sprintf("%s.subquestions[%d]", where, index))
-			if err != nil {
-				return nil, err
-			}
-			normalized = append(normalized, parsed)
-		}
-		question["subquestions"] = normalized
-	}
-	return question, nil
-}
-
-// Reject bindings that would overwrite one another or require the same values
-// container to be both an object and an array.
-func (tree *pathTree) insert(path []any) error {
-	node := tree
-	for _, segment := range path {
-		if node.terminal {
-			return fmt.Errorf("duplicate or overlapping values path")
-		}
-		if node.children == nil {
-			node.children = map[any]*pathTree{}
-		}
-		container := byte(1)
-		if _, index := segment.(int); index {
-			container = 2
-		}
-		if node.container != 0 && node.container != container {
-			return fmt.Errorf("values paths require incompatible object and array containers")
-		}
-		node.container = container
-		if node.children[segment] == nil {
-			node.children[segment] = &pathTree{}
-		}
-		node = node.children[segment]
-	}
-	if node.terminal || len(node.children) > 0 {
-		return fmt.Errorf("duplicate or overlapping values path")
-	}
-	node.terminal = true
-	return nil
-}
-
-// Resolve references after every field is known, allowing forward references.
-// Parent visibility and show_if dependencies share one graph for cycle detection.
-func (v *declarationValidator) checkConditions() error {
-	known := map[string]bool{}
-	for _, q := range v.questions {
-		known[q.key] = true
-	}
-	edges := map[string][]string{}
-	for _, q := range v.questions {
-		if q.parent != "" {
-			edges[q.key] = append(edges[q.key], q.parent)
-		}
-		for _, reference := range q.references {
-			segments, err := parsePath(reference)
-			if err != nil {
-				return err
-			}
-			key := canonicalPath(segments)
-			if known[key] {
-				edges[q.key] = append(edges[q.key], key)
-			} else if _, exists := readPath(v.defaults, segments); v.defaults != nil && !exists {
-				v.warnings = append(v.warnings, api.AiApplicationChartInspectionWarning{Code: "UNKNOWN_CONDITION_REFERENCE", Message: "Condition path is absent from chart defaults and declared fields", Path: reference})
-			}
-		}
-	}
-	state := map[string]int{}
-	var visit func(string) error
-	visit = func(key string) error {
-		if state[key] == 1 {
-			return fmt.Errorf("question visibility conditions contain a cycle")
-		}
-		if state[key] == 2 {
-			return nil
-		}
-		state[key] = 1
-		for _, next := range edges[key] {
-			if err := visit(next); err != nil {
-				return err
-			}
-		}
-		state[key] = 2
-		return nil
-	}
-	for _, q := range v.questions {
-		if err := visit(q.key); err != nil {
-			return err
-		}
-	}
-	return nil
-}
-
-func numeric(value any) (*big.Rat, bool) {
-	var text string
-	switch value := value.(type) {
-	case int:
-		text = strconv.Itoa(value)
-	case int64:
-		text = strconv.FormatInt(value, 10)
-	case uint64:
-		text = strconv.FormatUint(value, 10)
-	case uint:
-		text = strconv.FormatUint(uint64(value), 10)
-	case float64:
-		if math.IsNaN(value) || math.IsInf(value, 0) {
-			return nil, false
-		}
-		text = strconv.FormatFloat(value, 'g', -1, 64)
-	case json.Number:
-		text = value.String()
-	default:
-		return nil, false
-	}
-	return new(big.Rat).SetString(text)
-}
-func isScalar(value any) bool {
-	if value == nil {
-		return true
-	}
-	switch value.(type) {
-	case string, bool:
-		return true
-	}
-	_, ok := numeric(value)
-	return ok
-}
-func equalScalar(left, right any) bool {
-	if a, ok := numeric(left); ok {
-		b, ok := numeric(right)
-		return ok && a.Cmp(b) == 0
-	}
-	switch left := left.(type) {
-	case nil:
-		return right == nil
-	case string:
-		value, ok := right.(string)
-		return ok && left == value
-	case bool:
-		value, ok := right.(bool)
-		return ok && left == value
-	}
-	return false
-}
-
-func scalarKey(value any) string {
-	if number, ok := numeric(value); ok {
-		return "number:" + number.RatString()
-	}
-	switch value := value.(type) {
-	case nil:
-		return "null"
-	case string:
-		return "string:" + value
-	case bool:
-		return "boolean:" + strconv.FormatBool(value)
-	}
-	return "unsupported"
+	return key, nil
 }
 
 func (v *declarationValidator) normalizeOptions(value any, where string) ([]any, error) {
@@ -535,145 +419,4 @@ func (v *declarationValidator) normalizeOptions(value any, where string) ([]any,
 		out = append(out, map[string]any{propertyLabel: label, "value": value})
 	}
 	return out, nil
-}
-
-func validateAnswer(question map[string]any, value any) error {
-	if value == nil || value == "" {
-		return nil
-	}
-	kind := question["type"].(string)
-	if textTypes.Has(kind) {
-		text, ok := value.(string)
-		if !ok {
-			return fmt.Errorf("default must be text")
-		}
-		length := new(big.Rat).SetInt64(int64(utf8.RuneCountInString(text)))
-		if low, ok := numeric(question[propertyMinLength]); ok && length.Cmp(low) < 0 {
-			return fmt.Errorf("default is shorter than min_length")
-		}
-		if high, ok := numeric(question[propertyMaxLength]); ok && length.Cmp(high) > 0 {
-			return fmt.Errorf("default is longer than max_length")
-		}
-		if kind == "hostname" {
-			if len(text) > 253 {
-				return fmt.Errorf("invalid hostname")
-			}
-			for _, part := range strings.Split(text, ".") {
-				if !hostnamePart.MatchString(part) {
-					return fmt.Errorf("invalid hostname")
-				}
-			}
-		}
-		if kind == "ipaddr" && net.ParseIP(text) == nil {
-			return fmt.Errorf("invalid IP address")
-		}
-		if kind == "cidr" {
-			if _, _, err := net.ParseCIDR(text); err != nil {
-				return fmt.Errorf("invalid CIDR: %w", err)
-			}
-		}
-		if kind == "cron" && !validCron(text) {
-			return fmt.Errorf("invalid five-field numeric cron")
-		}
-	}
-	if kind == "boolean" {
-		if _, ok := value.(bool); !ok {
-			return fmt.Errorf("default must be a boolean")
-		}
-	}
-	if kind == questionInteger || kind == questionFloat {
-		number, ok := numeric(value)
-		if !ok || (kind == questionInteger && !number.IsInt()) {
-			return fmt.Errorf("default must match the numeric field type")
-		}
-		if low, ok := numeric(question[propertyMin]); ok && number.Cmp(low) < 0 {
-			return fmt.Errorf("default is below min")
-		}
-		if high, ok := numeric(question[propertyMax]); ok && number.Cmp(high) > 0 {
-			return fmt.Errorf("default is above max")
-		}
-	}
-	if kind == questionEnum || kind == "radio" {
-		answers := []any{value}
-		if question["multiple"] == true {
-			var ok bool
-			answers, ok = value.([]any)
-			if !ok {
-				return fmt.Errorf("multiple default must be a list")
-			}
-		}
-		available := map[string]bool{}
-		for _, option := range question["options"].([]any) {
-			available[scalarKey(option.(map[string]any)["value"])] = true
-		}
-		seen := map[string]bool{}
-		for _, answer := range answers {
-			key := scalarKey(answer)
-			if !isScalar(answer) || !available[key] {
-				return fmt.Errorf("default must be an available option")
-			}
-			if seen[key] {
-				return fmt.Errorf("multiple default must be distinct")
-			}
-			seen[key] = true
-		}
-	}
-	if kind == "array[string]" {
-		list, ok := value.([]any)
-		if !ok {
-			return fmt.Errorf("default must be a string list")
-		}
-		for _, item := range list {
-			if _, ok := item.(string); !ok {
-				return fmt.Errorf("default list must contain strings")
-			}
-		}
-	}
-	if kind == "map[string]" {
-		object, ok := value.(map[string]any)
-		if !ok {
-			return fmt.Errorf("default must be a string map")
-		}
-		for _, item := range object {
-			if _, ok := item.(string); !ok {
-				return fmt.Errorf("default map must contain string values")
-			}
-		}
-	}
-	return nil
-}
-
-func validCron(value string) bool {
-	fields := strings.Fields(value)
-	if len(fields) != 5 {
-		return false
-	}
-	limits := [][2]int{{0, 59}, {0, 23}, {1, 31}, {1, 12}, {0, 7}}
-	for index, field := range fields {
-		for _, piece := range strings.Split(field, ",") {
-			parts := cronPart.FindStringSubmatch(piece)
-			if parts == nil {
-				return false
-			}
-			if parts[2] != "" {
-				step, err := strconv.Atoi(parts[2])
-				if err != nil || step < 1 {
-					return false
-				}
-			}
-			if parts[1] == "*" {
-				continue
-			}
-			numbers := strings.Split(parts[1], "-")
-			previous := -1
-			for _, text := range numbers {
-				number, err := strconv.Atoi(text)
-				if err != nil || number < limits[index][0] || number > limits[index][1] || number < previous {
-					return false
-				}
-				previous = number
-			}
-		}
-	}
-	return true
 }

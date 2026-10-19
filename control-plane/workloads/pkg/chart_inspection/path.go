@@ -143,3 +143,40 @@ func canonicalPath(segments []any) string {
 	}
 	return out.String()
 }
+
+type pathTree struct {
+	terminal  bool
+	container byte
+	children  map[any]*pathTree
+}
+
+// Reject bindings that would overwrite one another or require the same values
+// container to be both an object and an array.
+func (tree *pathTree) insert(path []any) error {
+	node := tree
+	for _, segment := range path {
+		if node.terminal {
+			return fmt.Errorf("duplicate or overlapping values path")
+		}
+		if node.children == nil {
+			node.children = map[any]*pathTree{}
+		}
+		container := byte(1)
+		if _, index := segment.(int); index {
+			container = 2
+		}
+		if node.container != 0 && node.container != container {
+			return fmt.Errorf("values paths require incompatible object and array containers")
+		}
+		node.container = container
+		if node.children[segment] == nil {
+			node.children[segment] = &pathTree{}
+		}
+		node = node.children[segment]
+	}
+	if node.terminal || len(node.children) > 0 {
+		return fmt.Errorf("duplicate or overlapping values path")
+	}
+	node.terminal = true
+	return nil
+}

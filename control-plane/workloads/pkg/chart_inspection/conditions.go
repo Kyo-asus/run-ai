@@ -10,6 +10,9 @@ import (
 	"regexp"
 	"strings"
 	"unicode"
+
+	"github.com/dsx-ai-factory/run-ai/control-plane/workloads/internal/generated/pkg/api"
+	"github.com/dsx-ai-factory/run-ai/runai-application-packages/datastructs"
 )
 
 var conditionTypedValue = regexp.MustCompile(`^("(?:[^"\\]|\\.)*"|'[^']*'|true\b|false\b|null\b|-?\d+(?:\.\d+)?(?:[eE][+-]?\d+)?)`)
@@ -169,6 +172,42 @@ func (p *conditionParser) primary(depth int) error {
 	}
 	for p.pos < len(p.text) && !strings.ContainsRune("&|()", rune(p.text[p.pos])) {
 		p.pos++
+	}
+	return nil
+}
+
+type declarationQuestion struct {
+	key, parent string
+	references  []string
+}
+
+// Resolve references after every field is known, allowing forward references.
+// Parent visibility and show_if dependencies share one graph for cycle detection.
+func (v *declarationValidator) checkConditions() error {
+	known := map[string]bool{}
+	for _, q := range v.questions {
+		known[q.key] = true
+	}
+	graph := datastructs.NewDependenciesGraph[string]()
+	for _, q := range v.questions {
+		if q.parent != "" {
+			graph.AddDependency(q.key, q.parent)
+		}
+		for _, reference := range q.references {
+			segments, err := parsePath(reference)
+			if err != nil {
+				return err
+			}
+			key := canonicalPath(segments)
+			if known[key] {
+				graph.AddDependency(q.key, key)
+			} else if _, exists := readPath(v.defaults, segments); v.defaults != nil && !exists {
+				v.warnings = append(v.warnings, api.AiApplicationChartInspectionWarning{Code: "UNKNOWN_CONDITION_REFERENCE", Message: "Condition path is absent from chart defaults and declared fields", Path: reference})
+			}
+		}
+	}
+	if _, err := graph.FindOrder(); err != nil {
+		return fmt.Errorf("question visibility conditions contain a cycle")
 	}
 	return nil
 }
