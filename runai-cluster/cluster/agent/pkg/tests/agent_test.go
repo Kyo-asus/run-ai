@@ -1156,6 +1156,74 @@ var _ = Describe("Agent tests", func() {
 			validateAgentConfigWithCredentialsCounter(k8sClient, "16")
 		})
 
+		Describe("full sync after the control plane database was restored from a backup", func() {
+			// The cluster objects changed after the backup carry a higher update counter than the control plane sends.
+			// Credentials: password-pb is created by update #9 and genericsecret-gsa is updated by update #12.
+			// Workloads v2: new-v2-workload-c is created by update #3.
+			setSyncCounterToFullSync := func(update func(client.Client, client.Reader, int64) error) {
+				_, err := configmaps.CreateAgentConfigIfNotExists(k8sClient, k8sClient)
+				Expect(err).ToNot(HaveOccurred())
+				Expect(update(k8sClient, k8sClient, agentHandlers.FullSyncCounter)).To(Succeed())
+			}
+
+			It("regular credentials sync keeps secrets that carry a newer update counter", func() {
+				createSecretChangedAfterBackup(syncedNewPasswordSecret.Name, syncedNewPasswordSecret.Namespace, k8sClient)
+				changeSecretAfterBackup(existingDeptGenericSecret.Name, existingDeptGenericSecret.Namespace, k8sClient)
+
+				go agent.Start(stopper)
+				validateAgentConfigWithCredentialsCounter(k8sClient, "16")
+
+				expectSecretChangedAfterBackupIsKept(syncedNewPasswordSecret.Name, syncedNewPasswordSecret.Namespace, k8sClient)
+				expectSecretChangedAfterBackupIsKept(existingDeptGenericSecret.Name, existingDeptGenericSecret.Namespace, k8sClient)
+			})
+
+			It("credentials sync counter -1 overrides secrets that carry a newer update counter", func() {
+				createSecretChangedAfterBackup(syncedNewPasswordSecret.Name, syncedNewPasswordSecret.Namespace, k8sClient)
+				changeSecretAfterBackup(existingDeptGenericSecret.Name, existingDeptGenericSecret.Namespace, k8sClient)
+				setSyncCounterToFullSync(configmaps.UpdateCredentialsAssetsSyncCounter)
+
+				go agent.Start(stopper)
+				validateAgentConfigWithCredentialsCounter(k8sClient, "16")
+
+				expectSecretChangedAfterBackupIsOverridden(syncedNewPasswordSecret.Name, syncedNewPasswordSecret.Namespace, toCreateProjPassword, "Password", k8sClient)
+				expectSecretChangedAfterBackupIsOverridden(existingDeptGenericSecret.Name, existingDeptGenericSecret.Namespace, toUpdateDeptGenericSecret, "aaa", k8sClient)
+			})
+
+			It("only the credentials batch requested with -1 overrides secrets that carry a newer update counter", func() {
+				server.RouteToHandler("POST", credentialsAssetsPath, credentialsUpdatesOneAtATime)
+				createSecretChangedAfterBackup(syncedNewPasswordSecret.Name, syncedNewPasswordSecret.Namespace, k8sClient)
+				changeSecretAfterBackup(existingDeptGenericSecret.Name, existingDeptGenericSecret.Namespace, k8sClient)
+				setSyncCounterToFullSync(configmaps.UpdateCredentialsAssetsSyncCounter)
+
+				go agent.Start(stopper)
+				validateAgentConfigWithCredentialsCounter(k8sClient, "16")
+
+				// update #9 is the first batch, requested with -1
+				expectSecretChangedAfterBackupIsOverridden(syncedNewPasswordSecret.Name, syncedNewPasswordSecret.Namespace, toCreateProjPassword, "Password", k8sClient)
+				// update #12 is a later batch, requested with the counter of the previous one
+				expectSecretChangedAfterBackupIsKept(existingDeptGenericSecret.Name, existingDeptGenericSecret.Namespace, k8sClient)
+			})
+
+			It("regular workloads v2 sync keeps workloads that carry a newer update counter", func() {
+				createWorkloadV2ChangedAfterBackup(createdWorkloadC.GetName(), createdWorkloadC.GetNamespace(), "app-changed-after-backup", k8sClient)
+
+				go agent.Start(stopper)
+				validateAgentConfigWithWorkloadV2Counters(k8sClient, fmt.Sprintf("%d", lastWorkloadV2Update.UpdateCount))
+
+				expectWorkloadV2(createdWorkloadC.GetName(), createdWorkloadC.GetNamespace(), k8sClient, counterOfObjectChangedAfterBackup, "app-changed-after-backup")
+			})
+
+			It("workloads v2 sync counter -1 overrides workloads that carry a newer update counter", func() {
+				createWorkloadV2ChangedAfterBackup(createdWorkloadC.GetName(), createdWorkloadC.GetNamespace(), "app-changed-after-backup", k8sClient)
+				setSyncCounterToFullSync(configmaps.UpdateWorkloadsV2SyncCounter)
+
+				go agent.Start(stopper)
+				validateAgentConfigWithWorkloadV2Counters(k8sClient, fmt.Sprintf("%d", lastWorkloadV2Update.UpdateCount))
+
+				expectWorkloadV2(createdWorkloadC.GetName(), createdWorkloadC.GetNamespace(), k8sClient, strconv.FormatInt(toCreateWorkloadC.UpdateCount, 10), "app-c")
+			})
+		})
+
 		It("resource claim templates from backend created + spec-bump recreated + defaults-match left alone + deleted", func() {
 			// Capture the UIDs of the pre-seeded RCTs so the test can
 			// distinguish "same object, metadata reconciled" (same UID)

@@ -157,6 +157,7 @@ func (w *WorkloadsV2Handler) Handle() error {
 
 		syncReport.theReport.Updates = make([]workloadsManagerApi.ClusterSyncReportUpdate, numWorkloads)
 
+		w.fullSync = w.updateCount == FullSyncCounter
 		innerErr = w.ProcessWorkloadConcurrently(numWorkloads, numWorkers, backendWorkloads)
 		if innerErr != nil {
 			log.Error().Msgf("Had an error while processing workloads, error: %s", innerErr.Error())

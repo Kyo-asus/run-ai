@@ -154,6 +154,7 @@ func (ah *AssetsHandler) Handle() error {
 
 		syncReport.theReport.Updates = make([]assetsApi.ClusterSyncReportUpdate, numAssets)
 
+		ah.fullSync = ah.syncCounter == FullSyncCounter
 		processErr := ah.processAssetsConcurrently(numAssets, numWorkers, backendAssets)
 		if processErr != nil {
 			log.Error().Msgf("Had an error while processing %s assetd, error: %s", ah.assetGroup, processErr.Error())

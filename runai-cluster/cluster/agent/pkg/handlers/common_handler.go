@@ -33,6 +33,13 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
+// FullSyncCounter is the sync counter an operator sets in agent-config (followed by an agent restart) to re-sync
+// a stream in full, e.g. after the control plane database was restored from a backup and its sequences rewound.
+// The control plane returns the updates whose update count is greater than the counter, so -1 asks for all of them
+// (0 is a first-time sync, for which assets-service returns only recent updates). The batch requested with -1
+// applies its updates even to cluster objects that carry the same or a newer update counter.
+const FullSyncCounter int64 = -1
+
 type DeletionPredicate func(object client.Object) bool
 
 type CommonHandler struct {
@@ -45,6 +52,10 @@ type CommonHandler struct {
 	HandlingOptions
 	isUnstructured       bool
 	expectedObjectGetter ExpectedObjectGetter
+
+	// fullSync is set while the handler applies a batch it requested with FullSyncCounter.
+	// It is only written between batches, never while objects are processed.
+	fullSync bool
 }
 
 type HandlingOptions struct {
@@ -453,7 +464,7 @@ func (h *CommonHandler) handleNonExisting(objectToReconcile client.Object) error
 }
 
 func (h *CommonHandler) handleExisting(objectToReconcile, existingObject client.Object, conflictLabel string) error {
-	if h.objectInspector.IsUpToDate(objectToReconcile, existingObject) {
+	if !h.fullSync && h.objectInspector.IsUpToDate(objectToReconcile, existingObject) {
 		log.Debug().Msgf("%s <%s> in cluster is up to date", h.objectTypeStr(), existingObject.GetName())
 		return nil
 	}

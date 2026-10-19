@@ -108,6 +108,13 @@ func NewK8sObjectsHandler(backendClient *runaiBackendClient.BackendClient,
 	}, nil
 }
 
+// setFullSync marks every per-kind handler as applying (or not) a batch of a full sync.
+func (h *K8sObjectsHandler) setFullSync(fullSync bool) {
+	for _, kindHandler := range h.kindHandlers {
+		kindHandler.fullSync = fullSync
+	}
+}
+
 func (h *K8sObjectsHandler) MetricLabel() string {
 	return k8sObjectsMetricLabel
 }
@@ -160,6 +167,7 @@ func (h *K8sObjectsHandler) Handle() error {
 
 		report.theReport.Updates = make([]assetsApi.ClusterSyncReportUpdate, numUpdates)
 
+		h.setFullSync(h.syncCounter == FullSyncCounter)
 		if processErr := h.processUpdatesConcurrently(numUpdates, numWorkers, backendUpdates, report); processErr != nil {
 			log.Error().Msgf("Had an error while processing k8s-objects, error: %s", processErr.Error())
 			err = multierror.Append(err, processErr)
