@@ -127,7 +127,7 @@ var _ = Describe("Workload action history", func() {
 		}
 		response, err := service.InternalCreateWorkloadActions(ctx, request)
 		Expect(err).NotTo(HaveOccurred())
-		Expect(response.Code).To(Equal(http.StatusServiceUnavailable))
+		Expect(response.Code).To(Equal(http.StatusPreconditionFailed))
 		Expect(storedWorkloadActions(ctx, registered.ID, 0)).To(BeEmpty())
 		Expect(storedWorkloadActions(ctx, pending.ID, 0)).To(BeEmpty())
 
@@ -160,7 +160,7 @@ var _ = Describe("Workload action history", func() {
 		}}}
 		response, err := service.InternalCreateWorkloadActions(ctx, request)
 		Expect(err).NotTo(HaveOccurred())
-		Expect(response.Code).To(Equal(http.StatusServiceUnavailable))
+		Expect(response.Code).To(Equal(http.StatusPreconditionFailed))
 		Expect(storedWorkloadActions(ctx, workload.ID, 0)).To(BeEmpty())
 	})
 

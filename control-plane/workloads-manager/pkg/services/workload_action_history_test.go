@@ -56,13 +56,13 @@ func (c *retryingWorkloadActionsClient) CreateWorkloadActions(ctx context.Contex
 	c.tokens = append(c.tokens, ctx.Value(workloadsApi.ContextAccessToken))
 	if c.failures > 0 {
 		c.failures--
-		return workloadsApi.NewError(http.StatusServiceUnavailable, "temporary failure")
+		return workloadsApi.NewError(http.StatusPreconditionFailed, "Workload registration is pending; retry action delivery")
 	}
 	return nil
 }
 
 var _ = Describe("Workload action delivery", func() {
-	It("reuses record IDs and forwards the token on retry", func() {
+	It("retries pending registration with the same record IDs and token", func() {
 		client := &retryingWorkloadActionsClient{SimpleMock: workloadsClient.NewSimpleMock(), failures: 1}
 		recorder := &asyncWorkloadActionRecorder{
 			client:     func() workloadsClient.ClientInterface { return client },

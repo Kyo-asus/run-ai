@@ -56,7 +56,7 @@ func DbInsertRegisteredWorkloadActions(ctx context.Context, records []models.Wor
 		return api.NewError(http.StatusInternalServerError, "Failed to check workload registration", err)
 	}
 	if count != int64(len(workloadIDs)) {
-		return api.NewError(http.StatusServiceUnavailable, "Workload registration is pending; retry action delivery", nil)
+		return api.NewError(http.StatusPreconditionFailed, "Workload registration is pending; retry action delivery", nil)
 	}
 	return DbInsertWorkloadActions(ctx, records)
 }
