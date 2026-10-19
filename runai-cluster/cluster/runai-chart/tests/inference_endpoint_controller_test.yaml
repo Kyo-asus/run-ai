@@ -39,7 +39,7 @@ tests:
           path: rules
           content:
             apiGroups: [inference.networking.x-k8s.io]
-            resources: [inferenceobjectives]
+            resources: [inferencemodelrewrites, inferenceobjectives]
             verbs: [create, delete, get, list, patch, update, watch]
   - it: scopes leader election to the controller namespace
     documentSelector:
