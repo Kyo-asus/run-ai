@@ -21,12 +21,13 @@ import (
 )
 
 var (
-	ErrNotFound     = errors.New("not found")
-	ErrInvalidInput = errors.New("invalid input")
-	ErrInternal     = errors.New("internal error")
-	ErrUnauthorized = errors.New("unauthorized")
-	ErrForbidden    = errors.New("forbidden")
-	ErrConflict     = errors.New("conflict")
+	ErrNotFound            = errors.New("not found")
+	ErrInvalidInput        = errors.New("invalid input")
+	ErrUnsignedCertificate = errors.New("unsigned certificate")
+	ErrInternal            = errors.New("internal error")
+	ErrUnauthorized        = errors.New("unauthorized")
+	ErrForbidden           = errors.New("forbidden")
+	ErrConflict            = errors.New("conflict")
 )
 
 type Error struct {
@@ -85,7 +86,11 @@ func IsBadRequest(err error) bool {
 	return strings.Contains(err.Error(), "400") ||
 		strings.Contains(strings.ToLower(err.Error()), "bad request") ||
 		errors.Is(err, ErrInvalidInput) || errors.Is(err, iamError.ErrInvalidInput) ||
-		getErrorStatusCode(err) == http.StatusBadRequest || parseSettingPkgError(err) == ErrInvalidInput
+		errors.Is(err, ErrUnsignedCertificate) || getErrorStatusCode(err) == http.StatusBadRequest || parseSettingPkgError(err) == ErrInvalidInput
+}
+
+func IsUnsignedCertificate(err error) bool {
+	return errors.Is(err, ErrUnsignedCertificate)
 }
 
 func IsUnauthorized(err error) bool {
