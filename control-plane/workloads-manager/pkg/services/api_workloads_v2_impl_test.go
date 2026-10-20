@@ -303,7 +303,7 @@ var _ = Describe("WorkloadsV2Impl", func() {
 					},
 					Manifest: sampleManifest,
 				},
-				CreateWorkloadV2Options{DryRun: true, RecordAction: true},
+				CreateWorkloadV2Options{DryRun: true, RecordAction: recordAction},
 			)
 			Expect(submissionErrors).To(BeEmpty())
 			Expect(recorder.recorded()).To(BeEmpty())

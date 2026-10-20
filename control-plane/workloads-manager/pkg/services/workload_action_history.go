@@ -23,7 +23,12 @@ import (
 	"github.com/google/uuid"
 )
 
-const workloadActionDeliveryFailuresMetric = "workload_action_history_delivery_failures"
+const (
+	recordAction     = true
+	dontRecordAction = false
+
+	workloadActionDeliveryFailuresMetric = "workload_action_history_delivery_failures"
+)
 
 type workloadAction struct {
 	ClusterID    string

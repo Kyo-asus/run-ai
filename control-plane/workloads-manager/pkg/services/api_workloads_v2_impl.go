@@ -119,7 +119,7 @@ func NewWorkloadsV2Impl() *WorkloadsV2Impl {
 func (w *WorkloadsV2Impl) CreateWorkloadV2(ctx context.Context, request api.WorkloadV2CreateRequest, checkYamlSubmissionFlag bool) (*api.WorkloadV2, []api.SubmissionErrorV2) {
 	return w.CreateWorkloadV2WithDryRun(ctx, request, CreateWorkloadV2Options{
 		CheckYamlSubmissionFlag: checkYamlSubmissionFlag,
-		RecordAction:            true,
+		RecordAction:            recordAction,
 	})
 }
 
@@ -648,7 +648,7 @@ func (w *WorkloadsV2Impl) GetWorkloadV2ById(ctx context.Context, workloadId stri
 type RecordModifier func(record *models.WorkloadsQueueRecord)
 
 func (w *WorkloadsV2Impl) UpdateWorkloadV2(ctx context.Context, workloadId string, request api.WorkloadV2UpdateRequest, modifiers ...RecordModifier) (*api.WorkloadV2, *api.Error) {
-	return w.updateWorkloadV2(ctx, workloadId, request, updateWorkloadV2Options{recordAction: true}, modifiers...)
+	return w.updateWorkloadV2(ctx, workloadId, request, updateWorkloadV2Options{recordAction: recordAction}, modifiers...)
 }
 
 func (w *WorkloadsV2Impl) UpdateWorkloadInternal(ctx context.Context, workloadId string, request api.WorkloadV2UpdateRequest) (*api.WorkloadV2, *api.Error) {
@@ -969,7 +969,7 @@ func (w *WorkloadsV2Impl) ProcessBatch(ctx context.Context, batch api.WorkloadsV
 		}
 
 		for _, id := range batch.Ids {
-			_, runStateErr := w.setWorkloadRunState(ctx, id, api.WorkloadRunStateRequest{Value: runState}, false)
+			_, runStateErr := w.setWorkloadRunState(ctx, id, api.WorkloadRunStateRequest{Value: runState}, dontRecordAction)
 			if runStateErr != nil {
 				response.Failed = append(response.Failed, api.BatchResponseFailureItem{
 					Id:      id,
@@ -1599,7 +1599,7 @@ func validateResumeAllowed(qRecord *models.WorkloadsQueueRecord, actualPhase wor
 // SetWorkloadRunState records accepted suspend/resume actions from the public v2 API.
 // ProcessBatch calls setWorkloadRunState with recording disabled because workloads records the original v1 action.
 func (w *WorkloadsV2Impl) SetWorkloadRunState(ctx context.Context, workloadId string, request api.WorkloadRunStateRequest) (*api.WorkloadV2, *api.Error) {
-	return w.setWorkloadRunState(ctx, workloadId, request, true)
+	return w.setWorkloadRunState(ctx, workloadId, request, recordAction)
 }
 
 func (w *WorkloadsV2Impl) setWorkloadRunState(ctx context.Context, workloadId string, request api.WorkloadRunStateRequest, recordAction bool) (*api.WorkloadV2, *api.Error) {
