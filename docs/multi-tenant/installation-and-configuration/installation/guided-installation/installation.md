@@ -57,6 +57,7 @@ At a minimum, configure:
    - `controlPlane.version` - The control plane version to install. Omit it to install the latest supported version.
    - `controlPlane.customHelmValues` - Merges Helm values into the control plane chart, for settings not otherwise exposed by the installer - including the control plane administrator credentials and the external metrics store connection. See [Advanced Control Plane Configurations](../../../../installation-and-configuration/configuration/control-plane-config.md) for the full set of keys.
    - `controlPlane.customHelmValues.supportEntitled` - For NVIDIA Run:ai Support-Entitled Release, must be set to `true`.
+   - `controlPlane.customHelmValues.telemetryService.enabled` - For NVIDIA Run:ai Support-Entitled Release, must be set to `true` to enable telemetry.
    - `controlPlane.customHelmValues.telemetryService.telemetryAuth` - Optional, Support-Entitled Release only. Associates NVIDIA Run:ai's telemetry with your NCA ID - by default, telemetry is not associated with your organization. See [Registry Credentials](preparations.md#registry-credentials) for how to generate the NGC Service API Key. Provide it one of two ways:
      - `token: <SERVICE_API_KEY>` - Sets the Service API Key directly; the chart creates and manages the Kubernetes secret for you. Stored in plaintext in the configuration file, so protect it accordingly, or use `existingSecret` instead.
      - `existingSecret: <SECRET_NAME>` / `secretKey: <KEY_NAME>` - References a secret you create yourself beforehand - the installer does not create or manage it.
@@ -73,33 +74,18 @@ At a minimum, configure:
      version: "" # Omit to install the latest supported version
      customHelmValues:
        supportEntitled: true # Support-Entitled Release only
-       telemetryService: # Optional, Support-Entitled Release only
-         telemetryAuth:
-           token: <SERVICE_API_KEY>
-       metricsService:
-         config:
-           datasourceUrl: <METRIC_STORE_READ_URL> # example: https://prometheus-prod-13-prod-us-east-0.grafana.net/api/prom
-       tenantsManager:
-         config:
-           defaultMetricStore:
-             read:
-               auth:
-                 basic:
-                   password: <METRIC_STORE_READ_PASSWORD>
-                   username: "1434499"
-               url: <METRIC_STORE_READ_URL> # example: https://prometheus-prod-13-prod-us-east-0.grafana.net/api/prom
-             useXscopeHeader: true
-             write:
-               auth:
-                 basic:
-                   password: <METRIC_STORE_WRITE_PASSWORD>
-                   username: "1434499"
-               url: <METRIC_STORE_WRITE_URL> # example: https://prometheus-prod-56-prod-us-east-2.grafana.net/api/prom
-       thanos:
-         enabled: false
-       authorization:
-         config:
-           isCSPEnv: true
+       telemetryService.enabled: true # Support-Entitled Release only
+       telemetryService.telemetryAuth.token: <SERVICE_API_KEY> # Optional
+       metricsService.config.datasourceUrl: <METRIC_STORE_READ_URL> # example: https://prometheus-prod-13-prod-us-east-0.grafana.net/api/prom
+       tenantsManager.config.defaultMetricStore.read.auth.basic.password: <METRIC_STORE_READ_PASSWORD>
+       tenantsManager.config.defaultMetricStore.read.auth.basic.username: "1434499"
+       tenantsManager.config.defaultMetricStore.read.url: <METRIC_STORE_READ_URL> # example: https://prometheus-prod-13-prod-us-east-0.grafana.net/api/prom
+       tenantsManager.config.defaultMetricStore.useXscopeHeader: true
+       tenantsManager.config.defaultMetricStore.write.auth.basic.password: <METRIC_STORE_WRITE_PASSWORD>
+       tenantsManager.config.defaultMetricStore.write.auth.basic.username: "1434499"
+       tenantsManager.config.defaultMetricStore.write.url: <METRIC_STORE_WRITE_URL> # example: https://prometheus-prod-56-prod-us-east-2.grafana.net/api/prom
+       thanos.enabled: false
+       authorization.config.isCSPEnv: true
    ```
 
 4. Configure external access to the control plane:
@@ -134,30 +120,16 @@ controlPlane:
   version: ""
   customHelmValues:
     supportEntitled: true # Support-Entitled Release only
-    metricsService:
-      config:
-        datasourceUrl: <METRIC_STORE_READ_URL> # example: https://prometheus-prod-13-prod-us-east-0.grafana.net/api/prom
-    tenantsManager:
-      config:
-        defaultMetricStore:
-          read:
-            auth:
-              basic:
-                password: <METRIC_STORE_READ_PASSWORD>
-                username: "1434499"
-            url: <METRIC_STORE_READ_URL> # example: https://prometheus-prod-13-prod-us-east-0.grafana.net/api/prom
-          useXscopeHeader: true
-          write:
-            auth:
-              basic:
-                password: <METRIC_STORE_WRITE_PASSWORD>
-                username: "1434499"
-            url: <METRIC_STORE_WRITE_URL> # example: https://prometheus-prod-56-prod-us-east-2.grafana.net/api/prom
-    thanos:
-      enabled: false
-    authorization:
-      config:
-        isCSPEnv: true
+    metricsService.config.datasourceUrl: <METRIC_STORE_READ_URL> # example: https://prometheus-prod-13-prod-us-east-0.grafana.net/api/prom
+    tenantsManager.config.defaultMetricStore.read.auth.basic.password: <METRIC_STORE_READ_PASSWORD>
+    tenantsManager.config.defaultMetricStore.read.auth.basic.username: "1434499"
+    tenantsManager.config.defaultMetricStore.read.url: <METRIC_STORE_READ_URL> # example: https://prometheus-prod-13-prod-us-east-0.grafana.net/api/prom
+    tenantsManager.config.defaultMetricStore.useXscopeHeader: true
+    tenantsManager.config.defaultMetricStore.write.auth.basic.password: <METRIC_STORE_WRITE_PASSWORD>
+    tenantsManager.config.defaultMetricStore.write.auth.basic.username: "1434499"
+    tenantsManager.config.defaultMetricStore.write.url: <METRIC_STORE_WRITE_URL> # example: https://prometheus-prod-56-prod-us-east-2.grafana.net/api/prom
+    thanos.enabled: false
+    authorization.config.isCSPEnv: true
 
 externalConnection:
   type: ingress

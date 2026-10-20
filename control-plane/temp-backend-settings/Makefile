@@ -19,16 +19,13 @@ SHARED_PACKAGES_PATH_ABS=control-plane/temp-backend-settings/pkg
 
 ##@ Basic Commands
 
-mockery: generate-mocks ## Regenerate mocks (delegates to the shared target).
-.PHONY: mockery
-
 test: build-go test-go ## Run unit-tests.
 .PHONY: test
 
 lint: lint-go ## Run linter.
 .PHONY: lint
 
-validate: openapi-validate ## Run validate.
+validate: openapi-validate validate-mockery ## Run validate.
 .PHONY: validate
 
 purify: purify-go ## Purify the code.

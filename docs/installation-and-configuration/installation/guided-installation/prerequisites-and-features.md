@@ -86,6 +86,7 @@ See [GPU Memory Fractions](../../../platform-management/runai-scheduler/resource
 </Note>
 
 * For air-gapped installation, follow the instructions in [Install NVIDIA GPU Operator in Air-Gapped Environments](https://docs.nvidia.com/datacenter/cloud-native/gpu-operator/latest/install-gpu-operator-air-gapped.html).
+* For Gov-ready installations, follow the instructions in [Install the Gov-Ready GPU Operator](https://docs.nvidia.com/datacenter/cloud-native/gpu-operator/latest/install-gpu-operator-gov-ready.html).
 * The installer uses the default namespace for your platform - `gpu-operator` on Kubernetes, `nvidia-gpu-operator` on OpenShift. Otherwise, you must specify the target namespace using the flag `clusterConfig.global.nvidiaDcgmExporter.namespace` as described in [Advanced cluster configurations](../../configuration/cluster-config.md).
 * NVIDIA drivers may already be installed on the nodes. In such cases, use the NVIDIA GPU Operator flags `--set driver.enabled=false`. [DGX OS](https://docs.nvidia.com/dgx/dgx-os-6-user-guide/release_notes.html) is one such example as it comes bundled with NVIDIA Drivers.
 * For distribution-specific requirements and additional instructions, see the sections below:
@@ -97,6 +98,8 @@ See [GPU Memory Fractions](../../../platform-management/runai-scheduler/resource
 The Node Feature Discovery (NFD) Operator is a prerequisite for the NVIDIA GPU Operator in OpenShift. For connected installs, `runai-installer` installs the NFD Operator automatically as part of the GPU Operator prerequisite. For air-gapped installs, install the NFD Operator yourself beforehand, using the Red Hat OperatorHub catalog in the OpenShift Container Platform web console. For more information, see [Installing the Node Feature Discovery (NFD) Operator](https://docs.nvidia.com/datacenter/cloud-native/openshift/latest/install-nfd.html).
 
 The installer installs the GPU Operator into the `nvidia-gpu-operator` namespace via OperatorHub (OLM), rather than the `gpu-operator` namespace used on Kubernetes.
+
+The installer then creates a `ClusterPolicy`, so the GPU Operator runs in `ClusterPolicy` mode and does not deploy the DRA driver. For Multi-Node NVLink, refer to [NVIDIA Dynamic Resource Allocation (DRA) Driver](#nvidia-dynamic-resource-allocation-dra-driver).
 
 </Accordion>
 
@@ -193,24 +196,61 @@ For troubleshooting information, see the [NVIDIA GPU Operator Troubleshooting Gu
 
 When deploying on clusters with RDMA or Multi-Node NVLink-capable nodes (for example B200, GB200), the NVIDIA Network Operator is required to enable high-performance networking features such as GPUDirect RDMA in Kubernetes.
 
-For air-gapped installation, follow the instructions in [Network Operator Deployment in an Air-gapped Environment](https://docs.nvidia.com/networking/display/kubernetes2540/advanced/proxy-airgapped.html#network-operator-deployment-in-an-air-gapped-environment).
-
 The Network Operator works alongside the NVIDIA GPU Operator to provide:
 
 * NVIDIA networking drivers for advanced network capabilities.
 * Kubernetes device plugins to expose high-speed network hardware to workloads.
 * Secondary network components to support network-intensive applications.
 
-Setting `prerequisites.networkOperator.mode: install` installs the Network Operator:
+With `prerequisites.networkOperator.mode: install`, the installer does the following:
 
 - **Kubernetes** - Installs the Network Operator Helm chart.
 - **OpenShift** - Installs the Network Operator via OperatorHub (OLM), along with the SR-IOV Network Operator and the Node Feature Discovery (NFD) Operator, if not already present.
 
-To configure SR-IOV InfiniBand support on Kubernetes, set the required values via `customHelmValues` - see [Network Operator Deployment with an SR-IOV InfiniBand Network](https://docs.nvidia.com/networking/display/kubernetes2440/getting-started-kubernetes.html#network-operator-deployment-with-an-sr-iov-infiniband-network) for which values to set. This does not apply to OpenShift - configure SR-IOV support via the SR-IOV Network Operator directly.
+When installing the Network Operator:
+
+* To configure SR-IOV InfiniBand support on Kubernetes, set the required values via `customHelmValues` - see [Network Operator Deployment with an SR-IOV InfiniBand Network](https://docs.nvidia.com/networking/display/kubernetes2440/getting-started-kubernetes.html#network-operator-deployment-with-an-sr-iov-infiniband-network) for which values to set. This does not apply to OpenShift - configure SR-IOV support via the SR-IOV Network Operator directly.
+* For air-gapped installation, follow the instructions in [Network Operator Deployment in an Air-gapped Environment](https://docs.nvidia.com/networking/display/kubernetes2670/advanced/proxy-airgapped.html#network-operator-deployment-in-an-air-gapped-environment).
+* For Gov-ready installations, follow the instructions in [Install the Gov-Ready Network Operator](https://docs.nvidia.com/networking/display/kubernetes2670/install-network-operator-gov-ready.html).
 
 ### NVIDIA Dynamic Resource Allocation (DRA) Driver
 
-When deploying on clusters with Multi-Node NVLink (e.g. GB200), the [NVIDIA DRA driver](https://docs.nvidia.com/datacenter/cloud-native/gpu-operator/latest/dra-intro-install.html) is required to enable Dynamic Resource Allocation at the Kubernetes level. The DRA driver is installed with the GPU Operator. For air-gapped installations, follow the air-gapped instructions in the [NVIDIA GPU Operator](#nvidia-gpu-operator) section.
+When deploying on clusters with Multi-Node NVLink (e.g. GB200), the [NVIDIA DRA driver](https://docs.nvidia.com/datacenter/cloud-native/gpu-operator/26.7/dra-intro-install.html) is required. For air-gapped installations, follow the air-gapped instructions in the [NVIDIA GPU Operator](#nvidia-gpu-operator) section.
+
+How the DRA driver is installed depends on the GPU Operator mode. A cluster runs in one mode only:
+
+* **`ClusterPolicy` mode (default)** - GPUs are exposed through the NVIDIA device plugin. Install the DRA driver separately. Refer to [Support Matrix](../../support-matrix.md) for the supported DRA driver versions.
+* **`GPUCluster` mode (GPU Operator 26.7, new installations only)** - The GPU Operator deploys the DRA driver, which replaces the device plugin.
+
+For details, refer to [NVIDIA DRA driver](https://docs.nvidia.com/datacenter/cloud-native/gpu-operator/26.7/dra-intro-install.html) and, on OpenShift, [Installing the NVIDIA GPU Operator with DRA on OpenShift](https://docs.nvidia.com/datacenter/cloud-native/openshift/26.7/dra-gpu-ocp.html).
+
+By default, the installer installs the GPU Operator in `ClusterPolicy` mode and does not install the DRA driver. To install the GPU Operator in `GPUCluster` mode:
+
+* **Kubernetes** - Set the following values in `prerequisites.gpuOperator.customHelmValues`. Use flat dotted keys, as shown - nested YAML is not supported. If the NVIDIA driver is pre-installed on the nodes, replace `driver.nvidiaDriverCRD.enabled: true` with `driver.enabled: false`.
+
+  ```yaml
+  prerequisites:
+    gpuOperator:
+      mode: install
+      customHelmValues:
+        gpuCluster.deployCR: true
+        clusterPolicy.deployCR: false
+        driver.nvidiaDriverCRD.enabled: true
+  ```
+
+* **OpenShift** - The installer always creates a `ClusterPolicy`. Set `prerequisites.gpuOperator.mode` to `skip` and install the GPU Operator yourself, following [Installing the NVIDIA GPU Operator with DRA on OpenShift](https://docs.nvidia.com/datacenter/cloud-native/openshift/26.7/dra-gpu-ocp.html).
+
+<Warning>
+
+**Important**
+
+NVIDIA Run:ai limitations in `GPUCluster` mode:
+
+* GPU fractions are not supported.
+* NVIDIA Run:ai shows each node's GPU model, count, and memory only when GPU Feature Discovery is deployed separately. See [Deploying gpu-feature-discovery in standalone mode](https://github.com/NVIDIA/k8s-device-plugin#deploying-gpu-feature-discovery-in-standalone-mode).
+* Workloads that request `nvidia.com/gpu` require [extended-resource translation](../../../platform-management/runai-scheduler/scheduling/concepts-and-principles.md#extended-resource-translation), which requires Kubernetes 1.37 or later.
+
+</Warning>
 
 After the DRA driver is installed, update the cluster configuration using the `anyworkload-controller.GPUNetworkAccelerationEnabled` flag to enable GPU network acceleration. This triggers an update of the NVIDIA Run:ai `anyworkload-controller` deployment and restarts the controller. Set it via `cluster.customHelmValues` in the installer's configuration file - see [Custom Helm Values](#custom-helm-values) above - or, outside the guided installer, via Helm or `runaiconfig` as described in [Advanced cluster configurations](../../configuration/cluster-config.md).
 

@@ -4,7 +4,7 @@ instances:
 - url: nvidia-run-ai.docs.buildwithfern.com/run-ai
   custom-domain: docs.nvidia.com/run-ai
   multi-source: true
-title: NVIDIA Run:ai Self-Hosted Product Documentation
+title: NVIDIA Run:ai Documentation
 global-theme: nvidia
 logo:
   right-text: Run:ai
@@ -47,6 +47,12 @@ products:
         path: archived-versions.yml
 
 redirects:
+  - source: /self-hosted/reference/rest-api/endpoints/ai-applications/ai-applications
+    destination: /run-ai/self-hosted/reference/rest-api/endpoints/ai-applications/list-applications
+    permanent: true
+  - source: /self-hosted/reference/rest-api/endpoints/ai-applications/ai-applications/:slug*
+    destination: /run-ai/self-hosted/reference/rest-api/endpoints/ai-applications/:slug*
+    permanent: true
   - source: /self-hosted/platform-management/runai-scheduler/resource-optimization/fractions
     destination: /self-hosted/platform-management/runai-scheduler/resource-optimization/gpu-fractions/memory-fractions
     permanent: true
@@ -55,6 +61,12 @@ redirects:
     permanent: true
   - source: /self-hosted/platform-management/runai-scheduler/resource-optimization/time-slicing
     destination: /self-hosted/platform-management/runai-scheduler/resource-optimization/gpu-fractions/compute-modes
+    permanent: true
+  - source: /run-ai/self-hosted/documentation/platform-management/authentication/cluster-authentication
+    destination: /run-ai/self-hosted/documentation/installation-and-configuration/config/cluster-authentication
+    permanent: true
+  - source: /run-ai/self-hosted/documentation/platform-management/authentication/permissions
+    destination: /run-ai/self-hosted/documentation/platform-management/authentication/roles/permissions
     permanent: true
   - source: /self-hosted/v2.26/:slug*
     destination: https://run-ai-docs.nvidia.com/self-hosted
@@ -76,4 +88,13 @@ redirects:
     permanent: false
   - source: /multi-tenant/v2.24/:slug*
     destination: https://run-ai-docs.nvidia.com/multi-tenant/2.24
+    permanent: false
+  - source: /index.html
+    destination: /run-ai/self-hosted/documentation/home
+    permanent: true
+  - source: /saas
+    destination: https://run-ai-docs.nvidia.com/saas
+    permanent: false
+  - source: /saas/:slug*
+    destination: https://run-ai-docs.nvidia.com/saas
     permanent: false

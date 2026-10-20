@@ -21,9 +21,6 @@ OPENAPI_CLIENT_NAME_GO=client
 SHARED_PACKAGES_PATH_ABS=control-plane/bff-service/pkg
 
 ##@ Basic Commands 
-mockery: generate-mocks ## Regenerate mocks (delegates to the shared target).
-.PHONY: mockery
-
 test: build-go  test-go docker-compose-integration-tests-up ## Run unit-tests + integration tests
 .PHONY: test
 
@@ -56,7 +53,7 @@ coverage:
 lint: lint-go ## Run linter.
 .PHONY: lint
 
-validate: openapi-validate ## Run validate.
+validate: openapi-validate validate-mockery ## Run validate.
 .PHONY: validate
 
 purify: purify-go ## Purify the code.

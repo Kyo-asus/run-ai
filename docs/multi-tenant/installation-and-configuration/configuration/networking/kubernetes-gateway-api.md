@@ -278,6 +278,14 @@ Add a standard inference listener to the existing Gateway resource:
 
 NVIDIA Run:ai uses Knative Serving to support standard inference workloads. Inference traffic arrives at the Gateway and is forwarded to Knative Serving through Kourier, which routes it to the individual inference endpoints.
 
+<Note>
+
+**Note**
+
+On OpenShift, Knative is installed through the OpenShift Serverless operator, which supports Knative 1.17 only.
+
+</Note>
+
 <Tabs>
 
 <Tab title="Guided Installation">
@@ -585,15 +593,10 @@ Set `ingress.enabled: false` under `customHelmValues` for both the cluster and c
 ```yaml
 cluster:
   customHelmValues:
-    clusterConfig:
-      global:
-        ingress:
-          enabled: false
+    clusterConfig.global.ingress.enabled: false
 controlPlane:
   customHelmValues:
-    global:
-      ingress:
-        enabled: false
+    global.ingress.enabled: false
 ```
 
 Re-run `runai-installer install` with the updated `config.yaml` to apply the change. See [`cluster`](../../installation/guided-installation/configuration-reference.md#cluster-configuration) / [`controlPlane`](../../installation/guided-installation/configuration-reference.md#control-plane-configuration).

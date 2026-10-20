@@ -2957,12 +2957,6 @@ traefik:
     interval: 30s
     scrapeTimeout: 30s
 
-# When set, /api/docs and /redoc/* paths redirect to this external URL (used in SaaS).
-# Leave empty for self-hosted (no API docs endpoint served).
-redoc:
-  docsSite:
-    url: ""
-
 # When enabled, the chart fails to render if the release namespace is not labeled
 # istio-injection=disabled. Run the following before installing/upgrading:
 #   kubectl label namespace <release-namespace> istio-injection=disabled
@@ -3013,8 +3007,6 @@ clusterMigrator:
   config:
     logLevel: Info
     migrationVersion: v1
-    #   migrationType could be "clusters", "nodepools", "nodepool_system_settings" or "all". default "clusters"
-    migrationType: all
     tenantsToMigrate: ''
     tenantsToNotMigrate: ''
     markCompleted: true
@@ -4883,7 +4875,7 @@ telemetryService:
     host: '{{ .Values.global.postgresql.auth.host }}'
     port: '{{ .Values.global.postgresql.auth.port }}'
     name: '{{ .Values.global.postgresql.auth.database }}'
-    schema: diagnostics # existing production data; not renamed with the service
+    schema: telemetry
     sslMode: '{{ .Values.global.postgresql.auth.dbSslMode }}'
     migrationFiles: file:///migrations
     user: '{{ .Values.global.postgresql.auth.username }}'
