@@ -3,7 +3,7 @@
 
 suite: load-ttj
 workloadType: Workspace
-users: 50
+users: 500
 spawnRate: 5
 rate: 100
 duration: 5m

@@ -231,7 +231,7 @@ func deleteBudget(count int, opts options) time.Duration {
 
 const (
 	defaultImage         = "registry.k8s.io/pause:3.9"
-	maxUsers             = 64
+	maxUsers             = 512
 	maxRatePerSecond     = 1000
 	maxRequestsPerSecond = 1000
 )
